@@ -9,7 +9,7 @@ use eframe::egui::{
 };
 use std::sync::Arc;
 
-const fn hex(rgb: u32) -> Color32 {
+pub const fn hex(rgb: u32) -> Color32 {
     Color32::from_rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)
 }
 

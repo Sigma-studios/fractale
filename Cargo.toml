@@ -10,6 +10,8 @@ repository = "https://github.com/Sigma-studios/fractale"
 [dependencies]
 eframe = { version = "0.37", default-features = false, features = ["glow", "wayland", "x11", "default_fonts", "accesskit"] }
 libc = "0.2"
+notify = "8.2"
+rayon = "1.10"
 
 [dev-dependencies]
 egui = "0.37"
