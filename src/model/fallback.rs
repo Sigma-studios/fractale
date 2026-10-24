@@ -220,7 +220,7 @@ impl Worker {
         let order = self.order.clone();
         if let Some(job) = self.jobs.iter_mut().find(|j| j.folder == self.folder) {
             let rank = |n: &OsString| order.iter().position(|o| o == n).unwrap_or(usize::MAX);
-            let mut v: Vec<OsString> = job.todo.drain(..).collect();
+            let mut v: Vec<OsString> = std::mem::take(&mut job.todo).into();
             v.sort_by_key(rank);
             job.todo = v.into();
         }

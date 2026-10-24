@@ -229,7 +229,7 @@ impl Window {
                 }
             });
         }
-        for path in self.opened.drain(..).collect::<Vec<_>>() {
+        for path in std::mem::take(&mut self.opened) {
             if self.launch {
                 crate::model::platform::open_default(&path);
             } else {
