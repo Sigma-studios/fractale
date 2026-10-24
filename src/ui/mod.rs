@@ -1,7 +1,7 @@
 //! The window. Reads the model's state, sends it commands.
 
 mod files;
-mod folders;
+pub mod folders;
 pub mod icons;
 mod status;
 mod text;
@@ -154,6 +154,8 @@ pub struct Window {
     ctx: Arc<OnceLock<egui::Context>>,
     pub stats: FrameStats,
     drop_focus: bool,
+    /// Top-level folder rows on screen last frame (sized first).
+    pub visible_folders: Vec<std::ffi::OsString>,
 }
 
 /// What a pane's scroll area looked like last frame, to scroll the cursor
@@ -191,6 +193,7 @@ impl Window {
             ctx,
             stats: FrameStats::default(),
             drop_focus: false,
+            visible_folders: Vec::new(),
         }
     }
 
@@ -299,6 +302,15 @@ impl Window {
                         Key::ArrowUp => self.explorer.step(pane, -vertical, m.shift),
                         Key::ArrowLeft if m.alt => self.explorer.back(),
                         Key::ArrowRight if m.alt => self.explorer.forward(),
+                        Key::ArrowRight | Key::ArrowLeft if pane == Pane::Folders => {
+                            // Expand / collapse the folder under the cursor.
+                            if let Some((Pane::Folders, name)) = self.explorer.selection.cursor.clone() {
+                                let path = self.explorer.folder.join(&name);
+                                if (key == Key::ArrowRight) != self.explorer.is_expanded(&path) {
+                                    self.explorer.toggle_expanded(path);
+                                }
+                            }
+                        }
                         Key::ArrowLeft if pane == Pane::Files && columns > 1 => self.explorer.step(pane, -1, m.shift),
                         Key::ArrowRight if pane == Pane::Files && columns > 1 => self.explorer.step(pane, 1, m.shift),
                         Key::Home => self.explorer.step(pane, i64::MIN, m.shift),

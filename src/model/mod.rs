@@ -5,6 +5,8 @@
 pub mod complete;
 pub mod entry;
 pub mod explorer;
+pub mod fallback;
 pub mod listing;
 pub mod platform;
+pub mod sizes;
 pub mod view;
