@@ -101,13 +101,18 @@ fn selection_with_mouse_and_keys() {
     h.key_press(Key::Tab);
     h.run_steps(1);
     assert_eq!(h.state().focus, Pane::Folders);
+    // Folders sort by size once measured; follow the displayed order.
+    until(&mut h, Duration::from_secs(10), "sizes", |w| w.explorer.folder_sizes().is_some_and(|f| f.complete));
+    h.run_steps(2);
+    let order: Vec<_> = h.state().explorer.order(Pane::Folders).iter().map(|n| n.to_os_string()).collect();
+    h.state_mut().explorer.selection.only(Pane::Folders, &order[0]);
     h.key_press(Key::ArrowDown);
     h.run_steps(1);
-    assert!(h.state().explorer.selection.is_cursor(Pane::Folders, OsStr::new("beta")), "{:?}", h.state().explorer.selection.cursor);
+    assert!(h.state().explorer.selection.is_cursor(Pane::Folders, &order[1]), "{:?}", h.state().explorer.selection.cursor);
     // Enter opens the folder under the cursor.
     h.key_press(Key::Enter);
     listed(&mut h);
-    assert_eq!(h.state().explorer.folder, s.0.join("beta"));
+    assert_eq!(h.state().explorer.folder, s.0.join(&order[1]));
     h.key_press(Key::Backspace);
     listed(&mut h);
 

@@ -12,6 +12,10 @@ eframe = { version = "0.37", default-features = false, features = ["glow", "wayl
 libc = "0.2"
 notify = "8.2"
 rayon = "1.10"
+# répertoire's scanner and tree, for sizing folders when the daemon isn't
+# running (same rules, so numbers don't jump), and its client.
+repertoire-core = { git = "https://github.com/Sigma-studios/repertoire", rev = "fd764be55fea9dc3547fbebcabb7a87156ffd17d" }
+repertoire-proto = { git = "https://github.com/Sigma-studios/repertoire", rev = "fd764be55fea9dc3547fbebcabb7a87156ffd17d" }
 
 [dev-dependencies]
 egui = "0.37"

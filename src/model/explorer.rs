@@ -2,10 +2,12 @@
 //! thread; every disk access happens in the services it talks to, whose
 //! results it picks up in [`Explorer::poll`].
 
-use super::entry::Entry;
+use super::entry::{Entry, Kind};
+use super::fallback::Fallback;
+use super::sizes::{self, FolderSizes, SizeMsg, SourceState};
 use super::listing::{Count, Lister, Listing, Msg};
 use super::view::{History, Mods, Pane, Selection, Sort, SortBy, TypeAhead};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -45,12 +47,22 @@ pub struct Explorer {
     pub reveal_cursor: bool,
     pub type_ahead: TypeAhead,
     lister: Lister,
-    /// Folder totals when known (filled by the size source, later).
-    pub sizes: HashMap<OsString, u64>,
+    sizer: Fallback,
+    /// Sizes of the open folder and of expanded rows, by path.
+    pub sizes: HashMap<PathBuf, FolderSizes>,
+    pub source: SourceState,
+    /// Expanded rows (absolute paths), remembered per open folder while the
+    /// window is open.
+    pub expanded: HashMap<PathBuf, BTreeSet<PathBuf>>,
+    /// The pointer is over the folder pane: don't reorder rows under it.
+    pub freeze_folders: bool,
+    resort_pending: bool,
 }
 
 impl Explorer {
     pub fn new(folder: PathBuf, select: Option<OsString>, wake: impl Fn() + Send + Sync + 'static) -> Explorer {
+        let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(wake);
+        let w2 = wake.clone();
         let mut e = Explorer {
             folder: PathBuf::new(),
             generation: 0,
@@ -69,8 +81,13 @@ impl Explorer {
             view_version: 0,
             reveal_cursor: false,
             type_ahead: TypeAhead::default(),
-            lister: Lister::spawn(wake),
+            lister: Lister::spawn(move || w2()),
+            sizer: Fallback::spawn(wake),
             sizes: HashMap::new(),
+            source: SourceState::OwnScan { busy: false },
+            expanded: HashMap::new(),
+            freeze_folders: false,
+            resort_pending: false,
         };
         e.go(folder, select);
         e
@@ -93,13 +110,22 @@ impl Explorer {
             match msg {
                 Msg::Listed(l) if l.generation == self.generation => {
                     let fresh = !self.is_current();
-                    self.listing = l;
+                    let before = std::mem::replace(&mut self.listing, l);
                     if fresh {
                         self.counts.clear();
-                        self.sizes.clear();
                         self.selection.clear();
+                    } else {
+                        // Tell the sizer which subfolders changed.
+                        let names = changed_folders(&before, &self.listing);
+                        let files = files_changed(&before, &self.listing);
+                        if !names.is_empty() || files {
+                            self.sizer.changed(&self.folder, names);
+                        }
                     }
                     self.rebuild();
+                    if fresh {
+                        self.watch_sizes();
+                    }
                     changed = true;
                 }
                 Msg::Counts { generation, counts } if generation == self.generation => {
@@ -109,7 +135,77 @@ impl Explorer {
                 _ => {}
             }
         }
+        let mut resort = false;
+        while let Ok(msg) = self.sizer.rx.try_recv() {
+            if let SizeMsg::State(s) = &msg {
+                self.source = s.clone();
+                continue;
+            }
+            let ours = match &msg {
+                SizeMsg::Child { folder, .. } | SizeMsg::Done { folder, .. } => self.wants(folder),
+                SizeMsg::Folder(f) => self.wants(&f.path),
+                SizeMsg::State(_) => false,
+            };
+            if ours && sizes::apply(&mut self.sizes, &msg) {
+                changed = true;
+                resort = true;
+            }
+        }
+        if (resort || self.resort_pending) && self.folder_sort.by == Some(SortBy::Size) {
+            if self.freeze_folders {
+                self.resort_pending = true;
+            } else {
+                self.resort_pending = false;
+                self.rebuild();
+            }
+        }
         changed
+    }
+
+    /// Sizes for this path matter now (the open folder or an expanded row).
+    fn wants(&self, path: &Path) -> bool {
+        path == self.folder || self.expanded.get(&self.folder).is_some_and(|e| e.contains(path))
+    }
+
+    /// Ask the size source for the open folder and its expanded rows, the
+    /// rows on screen first.
+    pub fn watch_sizes(&mut self) {
+        let order: Vec<OsString> = self.order(Pane::Folders).into_iter().map(OsStr::to_owned).collect();
+        let expanded: Vec<PathBuf> = self.expanded.get(&self.folder).map(|e| e.iter().cloned().collect()).unwrap_or_default();
+        self.sizes.retain(|p, _| *p == self.folder || expanded.contains(p));
+        self.sizer.watch(&self.folder, order, expanded);
+    }
+
+    /// Size these rows first (they're on screen).
+    pub fn prioritize(&mut self, visible: Vec<OsString>) {
+        let mut order = visible;
+        for n in self.order(Pane::Folders) {
+            if !order.iter().any(|o| o == n) {
+                order.push(n.to_owned());
+            }
+        }
+        let expanded: Vec<PathBuf> = self.expanded.get(&self.folder).map(|e| e.iter().cloned().collect()).unwrap_or_default();
+        self.sizer.watch(&self.folder, order, expanded);
+    }
+
+    pub fn folder_sizes(&self) -> Option<&FolderSizes> {
+        self.sizes.get(&self.folder)
+    }
+
+    pub fn is_expanded(&self, path: &Path) -> bool {
+        self.expanded.get(&self.folder).is_some_and(|e| e.contains(path))
+    }
+
+    /// Expand or collapse a row (a folder anywhere below the open one).
+    pub fn toggle_expanded(&mut self, path: PathBuf) {
+        let set = self.expanded.entry(self.folder.clone()).or_default();
+        if !set.remove(&path) {
+            set.insert(path);
+        } else {
+            // Collapsing a row collapses what was open below it.
+            set.retain(|p| !p.starts_with(&path));
+        }
+        self.watch_sizes();
     }
 
     fn go(&mut self, folder: PathBuf, cursor: Option<OsString>) {
@@ -153,8 +249,11 @@ impl Explorer {
         }
     }
 
+    /// F5: list again and measure again.
     pub fn refresh(&mut self) {
         self.lister.refresh();
+        self.sizes.clear();
+        self.sizer.forget(&self.folder);
     }
 
     pub fn toggle_hidden(&mut self) {
@@ -194,8 +293,8 @@ impl Explorer {
         let visible = |e: &Entry| self.show_hidden || !e.is_hidden();
         let mut folders: Vec<usize> = (0..entries.len()).filter(|&i| entries[i].is_folder() && visible(&entries[i])).collect();
         let mut files: Vec<usize> = (0..entries.len()).filter(|&i| !entries[i].is_folder() && visible(&entries[i])).collect();
-        let sizes = &self.sizes;
-        let folder_size = |e: &Entry| sizes.get(&e.name).copied();
+        let sizes = self.sizes.get(&self.folder);
+        let folder_size = |e: &Entry| sizes.and_then(|s| s.children.get(&e.name)).map(|c| c.total);
         let file_size = |e: &Entry| Some(e.bytes);
         let (fs, ls) = (self.folder_sort, self.file_sort);
         if fs.by.is_some() {
@@ -277,6 +376,26 @@ impl Explorer {
             .map(|e| self.folder.join(&e.name))
             .collect()
     }
+}
+
+/// Subfolders that appeared, disappeared or changed between two listings
+/// of the same folder (a folder's mtime moves when its entries change).
+fn changed_folders(before: &Listing, after: &Listing) -> Vec<OsString> {
+    let old: HashMap<&OsStr, (i64, u64)> = before.entries.iter().filter(|e| e.kind == Kind::Dir).map(|e| (e.name.as_os_str(), (e.mtime, e.ino))).collect();
+    let new: HashMap<&OsStr, (i64, u64)> = after.entries.iter().filter(|e| e.kind == Kind::Dir).map(|e| (e.name.as_os_str(), (e.mtime, e.ino))).collect();
+    let mut out: Vec<OsString> = new.iter().filter(|(n, v)| old.get(*n) != Some(*v)).map(|(n, _)| n.to_os_string()).collect();
+    out.extend(old.keys().filter(|n| !new.contains_key(*n)).map(|n| n.to_os_string()));
+    out
+}
+
+/// Files directly in the folder changed (size, mtime, added, removed).
+fn files_changed(before: &Listing, after: &Listing) -> bool {
+    let sig = |l: &Listing| -> Vec<(OsString, u64, i64)> {
+        let mut v: Vec<_> = l.entries.iter().filter(|e| e.kind != Kind::Dir).map(|e| (e.name.clone(), e.bytes, e.mtime)).collect();
+        v.sort();
+        v
+    };
+    sig(before) != sig(after)
 }
 
 pub enum Activate {

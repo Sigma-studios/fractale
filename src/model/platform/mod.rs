@@ -20,3 +20,21 @@ pub fn spawn_detached(cmd: &mut std::process::Command) {
         std::thread::spawn(move || child.wait());
     }
 }
+
+/// Lower the calling thread's CPU and I/O priority, for background work
+/// (as Sentinelle does): nice 19 and the idle I/O class.
+pub fn deprioritize_current_thread() {
+    #[cfg(target_os = "linux")]
+    // SAFETY: plain syscalls on the calling thread; failures are harmless.
+    unsafe {
+        // PRIO_PROCESS with id 0 applies to the calling thread on Linux.
+        libc::setpriority(libc::PRIO_PROCESS, 0, 19);
+        // ioprio_set(IOPRIO_WHO_PROCESS, 0, IOPRIO_CLASS_IDLE << 13)
+        libc::syscall(libc::SYS_ioprio_set, 1, 0, 3 << 13);
+    }
+    #[cfg(not(target_os = "linux"))]
+    // SAFETY: setpriority on the calling process; failure is harmless.
+    unsafe {
+        libc::setpriority(libc::PRIO_DARWIN_THREAD, 0, libc::PRIO_DARWIN_BG);
+    }
+}
