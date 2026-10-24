@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup update stable && rustup default stable && rustup component add clippy
+      - run: cargo build --all-targets
+      - run: cargo clippy --all-targets
+      # Snapshot tests render with wgpu (Metal here).
+      - run: cargo test
+        env:
+          FRACTALE_SNAPSHOTS: "1"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: snapshot-diffs
+          path: tests/snapshots/*.png
+
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup update stable && rustup default stable && rustup component add clippy
+      - run: cargo build --all-targets
+      - run: cargo clippy --all-targets
+      - run: cargo test

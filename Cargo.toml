@@ -1,0 +1,22 @@
+[package]
+name = "fractale"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+description = "A file explorer for finding what uses disk space, and for everyday browsing"
+license = "MIT"
+repository = "https://github.com/Sigma-studios/fractale"
+
+[dependencies]
+eframe = { version = "0.37", default-features = false, features = ["glow", "wayland", "x11", "default_fonts", "accesskit"] }
+libc = "0.2"
+
+[dev-dependencies]
+egui = "0.37"
+egui_kittest = { version = "0.37", features = ["snapshot", "wgpu"] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true
