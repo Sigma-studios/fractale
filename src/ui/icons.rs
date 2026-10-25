@@ -171,6 +171,25 @@ pub fn magnifier(p: &Painter, r: Rect, color: Color32) {
     p.line_segment([c + vec2(k * 0.19, k * 0.19), c + vec2(k * 0.38, k * 0.38)], Stroke::new(1.8, color));
 }
 
+/// An eye: almond outline and pupil ("look inside").
+pub fn eye(p: &Painter, r: Rect, color: Color32) {
+    let (c, hw, hh) = (r.center(), r.width().min(r.height() * 1.6) * 0.42, r.height() * 0.3);
+    let n = 12;
+    // Upper and lower lids as arcs through the corners.
+    let lid = |sign: f32| -> Vec<eframe::egui::Pos2> {
+        (0..=n)
+            .map(|i| {
+                let t = i as f32 / n as f32;
+                let x = -hw + 2.0 * hw * t;
+                c + vec2(x, sign * hh * (1.0 - (x / hw).powi(2)))
+            })
+            .collect()
+    };
+    p.add(eframe::egui::Shape::line(lid(-1.0), Stroke::new(1.4, color)));
+    p.add(eframe::egui::Shape::line(lid(1.0), Stroke::new(1.4, color)));
+    p.circle_filled(c, hh * 0.62, color);
+}
+
 /// The grid/list toggle glyphs.
 pub fn grid_glyph(p: &Painter, r: Rect, color: Color32) {
     let k = r.width().min(r.height()) * 0.22;

@@ -19,7 +19,21 @@ const LIST_ROW_H: f32 = 26.0;
 
 pub fn show(ui: &mut egui::Ui, w: &mut Window) {
     let n = w.explorer.files.len();
-    pane_header(ui, &format!("Files ({n})"), |ui| {
+    let title = match &w.explorer.peek {
+        Some(pk) => format!("Inside {} ({n})", pk.path.file_name().unwrap_or_default().to_string_lossy()),
+        None => format!("Files ({n})"),
+    };
+    pane_header(ui, &title, |ui| {
+        if let Some(pk) = w.explorer.peek.clone() {
+            // Leave the peek, or go there for real.
+            if ui.small_button("Close").on_hover_text("Back to this folder's files (Escape)").clicked() {
+                w.explorer.close_peek();
+            }
+            if ui.small_button("Open").on_hover_text("Open this folder").clicked() {
+                w.explorer.open(pk.path.clone());
+            }
+            ui.add_space(8.0);
+        }
         layout_toggle(ui, w);
         ui.add_space(8.0);
         let mut sort = w.explorer.file_sort;
@@ -69,7 +83,7 @@ fn cursor_row(w: &Window) -> Option<usize> {
         .cursor
         .as_ref()
         .filter(|(p, _)| *p == Pane::Files)
-        .and_then(|(_, name)| w.explorer.files.iter().position(|&i| &w.explorer.entry(i).name == name))
+        .and_then(|(_, name)| w.explorer.files.iter().position(|&i| &w.explorer.file_entry(i).name == name))
 }
 
 fn tile_size(w: &Window) -> (f32, f32) {
@@ -119,7 +133,7 @@ fn grid(ui: &mut egui::Ui, w: &mut Window) {
         let behind = range.start.saturating_sub(1)..range.start;
         for r in ahead.chain(behind) {
             for k in r * columns..((r + 1) * columns).min(n) {
-                let e = w.explorer.entry(w.explorer.files[k]);
+                let e = w.explorer.file_entry(w.explorer.files[k]);
                 if let Some(key) = preview_key(w, e, ui.ctx().pixels_per_point()) {
                     let size = e.size;
                     w.previews.want(key, size);
@@ -154,7 +168,7 @@ fn background_click(ui: &egui::Ui, w: &mut Window, area: Rect, on_item: bool) {
 
 /// One tile; true if it was clicked.
 fn tile(ui: &mut egui::Ui, w: &mut Window, i: usize, rect: Rect) -> bool {
-    let e = w.explorer.entry(i).clone();
+    let e = w.explorer.file_entry(i).clone();
     // By name: a rebuild between press and release (sizes arriving, a
     // refresh) must not lose the click.
     let id = ui.scope_id().with(("tile", &e.name));
@@ -175,7 +189,7 @@ fn tile(ui: &mut egui::Ui, w: &mut Window, i: usize, rect: Rect) -> bool {
     }
     let icon_rect = Rect::from_min_size(pos2(rect.center().x - w.tile / 2.0, rect.top() + 8.0), vec2(w.tile, w.tile));
     let ppp = ui.ctx().pixels_per_point();
-    let path = w.explorer.folder.join(&e.name);
+    let path = w.explorer.files_folder().join(&e.name);
     if resp.hovered() && !resp.dragged() && e.kind != Kind::Dir {
         w.media.hover(&path, (w.tile * ppp) as u32);
     }
@@ -218,7 +232,7 @@ fn preview_key(w: &Window, e: &Entry, ppp: f32) -> Option<crate::model::thumbs::
         Kind::Symlink => e.link.as_ref().is_some_and(|l| l.resolves_to == Some(Kind::File)),
         _ => false,
     };
-    (file && e.size > 0).then(|| Previews::key(&w.explorer.folder.join(&e.name), e.mtime, w.tile * ppp))
+    (file && e.size > 0).then(|| Previews::key(&w.explorer.files_folder().join(&e.name), e.mtime, w.tile * ppp))
 }
 
 /// A preview fitted into the icon square, sitting on its bottom edge like
@@ -346,7 +360,7 @@ fn list(ui: &mut egui::Ui, w: &mut Window) {
         for k in range {
             let i = w.explorer.files[k];
             let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), LIST_ROW_H), Sense::click_and_drag());
-            let e = w.explorer.entry(i).clone();
+            let e = w.explorer.file_entry(i).clone();
             let sel = w.explorer.selection.is_selected(&e.name);
             resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, sel, e.name_lossy()));
             let selected = w.explorer.selection.is_selected(&e.name);

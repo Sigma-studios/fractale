@@ -31,6 +31,8 @@ pub struct OpenWith {
 }
 
 pub struct Rename {
+    /// Which pane the item is in (the files pane may show a peeked folder).
+    pub pane: Pane,
     pub name: OsString,
     pub text: String,
     /// The first frame: focus the field and select the name without its
@@ -48,19 +50,19 @@ pub struct Dragged {
 
 impl Window {
     pub fn start_rename(&mut self) {
-        let Some((_, name)) = self.explorer.selection.cursor.clone() else { return };
-        if self.explorer.find(&name).is_none() {
+        let Some((pane, name)) = self.explorer.selection.cursor.clone() else { return };
+        if self.explorer.find_in(pane, &name).is_none() {
             return;
         }
         let text = name.to_string_lossy().into_owned();
-        self.ops.rename = Some(Rename { name, text, fresh: true });
+        self.ops.rename = Some(Rename { pane, name, text, fresh: true });
     }
 
     fn selected_or_cursor(&self) -> Vec<PathBuf> {
         let mut v = self.explorer.selected_paths();
         if v.is_empty() {
-            if let Some((_, n)) = &self.explorer.selection.cursor {
-                v.push(self.explorer.folder.join(n));
+            if let Some((p, n)) = &self.explorer.selection.cursor {
+                v.push(self.explorer.path_in(*p, n));
             }
         }
         v
@@ -85,6 +87,14 @@ impl Window {
         ctx.copy_text(text);
     }
 
+    /// Where pasting goes: the folder the focused pane shows.
+    pub fn here(&self) -> PathBuf {
+        match self.focus {
+            Pane::Files => self.explorer.files_folder().to_path_buf(),
+            Pane::Folders => self.explorer.folder.clone(),
+        }
+    }
+
     /// Paste files: the system clipboard's when there is one (what Dolphin
     /// copied, or ours), else Fractale's own.
     pub fn paste_into(&mut self, dest: PathBuf) {
@@ -106,7 +116,7 @@ impl Window {
             Key::C if cmd => self.explorer.copy_selection(false),
             Key::X if cmd => self.explorer.copy_selection(true),
             Key::V if cmd => {
-                let dest = self.explorer.folder.clone();
+                let dest = self.here();
                 self.paste_into(dest);
             }
             Key::N if cmd && m.shift => self.explorer.new_folder(),
@@ -127,7 +137,7 @@ impl Window {
             }
         }
         // The item went away (renamed elsewhere, deleted): stop editing.
-        if self.ops.rename.as_ref().is_some_and(|r| self.explorer.is_current() && self.explorer.find(&r.name).is_none()) {
+        if self.ops.rename.as_ref().is_some_and(|r| self.explorer.is_current() && self.explorer.find_in(r.pane, &r.name).is_none()) {
             self.ops.rename = None;
         }
     }
@@ -189,7 +199,7 @@ pub fn background_menu(ui: &mut egui::Ui, w: &mut Window) {
     })
     .shortcut_text(shortcut("V"));
     if ui.add_enabled(w.explorer.clipboard.is_some() || w.system_clipboard, paste).clicked() {
-        let dest = w.explorer.folder.clone();
+        let dest = w.explorer.files_folder().to_path_buf();
         w.paste_into(dest);
         ui.close();
     }
@@ -199,7 +209,7 @@ pub fn background_menu(ui: &mut egui::Ui, w: &mut Window) {
     }
     ui.separator();
     if ui.add(egui::Button::new("Copy this folder's path").shortcut_text(shortcut("Shift+C"))).clicked() {
-        ui.ctx().copy_text(w.explorer.folder.to_string_lossy().into_owned());
+        ui.ctx().copy_text(w.explorer.files_folder().to_string_lossy().into_owned());
         ui.close();
     }
     let hidden = if w.explorer.show_hidden { "Hide hidden files" } else { "Show hidden files" };
@@ -231,7 +241,7 @@ pub fn rename_field(ui: &mut egui::Ui, w: &mut Window, name: &OsStr, rect: egui:
         r.fresh = false;
         resp.request_focus();
         // Select the name without its extension (a folder's whole name).
-        let is_dir = w.explorer.find(name).is_some_and(|e| e.is_folder());
+        let is_dir = w.explorer.find_in(r.pane, name).is_some_and(|e| e.is_folder());
         let chars = r.text.chars().count();
         let stem = if is_dir { chars } else { r.text.rfind('.').filter(|&i| i > 0).map_or(chars, |i| r.text[..i].chars().count()) };
         if let Some(mut st) = egui::TextEdit::load_state(ui.ctx(), id) {
@@ -247,7 +257,7 @@ pub fn rename_field(ui: &mut egui::Ui, w: &mut Window, name: &OsStr, rect: egui:
     if resp.lost_focus() {
         // Enter, Tab or a click elsewhere: keep the new name.
         let r = w.ops.rename.take().unwrap();
-        let path = w.explorer.folder.join(&r.name);
+        let path = w.explorer.path_in(r.pane, &r.name);
         if !r.text.trim().is_empty() {
             w.explorer.rename(path, OsString::from(r.text.trim()));
         }
@@ -263,7 +273,7 @@ pub fn drag_source(ui: &egui::Ui, w: &mut Window, resp: &egui::Response, pane: P
             w.explorer.selection.only(pane, name);
         }
         let paths = w.explorer.selected_paths();
-        let devs = paths.iter().filter_map(|p| p.file_name()).filter_map(|n| w.explorer.find(n)).map(|e| e.dev).collect();
+        let devs = paths.iter().filter_map(|p| p.file_name()).filter_map(|n| w.explorer.find_in(pane, n)).map(|e| e.dev).collect();
         // Also a system drag, so other apps can take the files.
         w.system_drag = Some(paths.clone());
         resp.dnd_set_drag_payload(Dragged { paths, devs });

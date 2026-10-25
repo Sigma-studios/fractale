@@ -4,7 +4,8 @@ A file explorer for everyday browsing that also shows what takes the space.
 Folders are on the left as rows with size bars, each bar showing the
 folder's share of the open folder. Below them, rows for the files directly
 in the folder and for hidden entries (while they aren't shown) make the bars
-add up to the total. Expanded rows follow the pane's sort. Everything else
+add up to the total. Expanded rows follow the pane's sort. The eye on a row
+(or Space) shows that folder's files on the right without opening it. Everything else
 is on the right, as a grid of previews or a list. Sizes and search come from
 [répertoire](https://github.com/Sigma-studios/repertoire) when it runs, and
 from Fractale's own scanning when it doesn't.
@@ -71,6 +72,7 @@ other file managers use them too. Each format is a small `Previewer`
 | Tab | switch between folders and files |
 | Enter | open (folders in Fractale, files with their app) |
 | Right / Left (folders) | expand / collapse a row |
+| Space (folders) | peek: the folder's files on the right, without opening it |
 | Backspace, Alt+Up | parent folder |
 | Alt+Left / Alt+Right, mouse back/forward | history |
 | Typing a name | jump to it |
