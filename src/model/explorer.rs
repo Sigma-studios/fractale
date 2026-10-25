@@ -4,10 +4,12 @@
 
 use super::entry::{Entry, Kind};
 use super::fallback::Fallback;
+use super::repertoire::{self as rep, Repertoire};
+use super::search::{Hit, Query, Searcher};
 use super::sizes::{self, FolderSizes, SizeMsg, SourceState};
 use super::listing::{Count, Lister, Listing, Msg};
 use super::view::{History, Mods, Pane, Selection, Sort, SortBy, TypeAhead};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -48,6 +50,20 @@ pub struct Explorer {
     pub type_ahead: TypeAhead,
     lister: Lister,
     sizer: Fallback,
+    daemon: Repertoire,
+    /// répertoire answers.
+    pub daemon_up: bool,
+    /// Folders répertoire doesn't index (sized by Fractale itself).
+    not_indexed: HashSet<PathBuf>,
+    /// Whether we've heard from répertoire yet (don't start our own scan
+    /// for a moment at startup, it'd be cancelled right away).
+    decided: bool,
+    started: Instant,
+    /// répertoire's "biggest folders here" for a folder.
+    pub top: Option<(PathBuf, Vec<(PathBuf, u64)>)>,
+    searcher: Searcher,
+    /// A search replacing both panes, while there's a query.
+    pub search: Option<SearchView>,
     /// Sizes of the open folder and of expanded rows, by path.
     pub sizes: HashMap<PathBuf, FolderSizes>,
     pub source: SourceState,
@@ -61,6 +77,10 @@ pub struct Explorer {
 
 impl Explorer {
     pub fn new(folder: PathBuf, select: Option<OsString>, wake: impl Fn() + Send + Sync + 'static) -> Explorer {
+        Explorer::with_sources(folder, select, Sources::default(), wake)
+    }
+
+    pub fn with_sources(folder: PathBuf, select: Option<OsString>, sources: Sources, wake: impl Fn() + Send + Sync + 'static) -> Explorer {
         let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(wake);
         let w2 = wake.clone();
         let mut e = Explorer {
@@ -82,7 +102,15 @@ impl Explorer {
             reveal_cursor: false,
             type_ahead: TypeAhead::default(),
             lister: Lister::spawn(move || w2()),
-            sizer: Fallback::spawn(wake),
+            sizer: Fallback::spawn(wake.clone()),
+            searcher: Searcher::spawn(sources.socket.clone(), wake.clone()),
+            search: None,
+            daemon: Repertoire::spawn(sources.socket, sources.retry, wake),
+            daemon_up: false,
+            not_indexed: HashSet::new(),
+            decided: false,
+            started: Instant::now(),
+            top: None,
             sizes: HashMap::new(),
             source: SourceState::OwnScan { busy: false },
             expanded: HashMap::new(),
@@ -118,7 +146,8 @@ impl Explorer {
                         // Tell the sizer which subfolders changed.
                         let names = changed_folders(&before, &self.listing);
                         let files = files_changed(&before, &self.listing);
-                        if !names.is_empty() || files {
+                        // répertoire sees changes by itself.
+                        if (!names.is_empty() || files) && !self.uses_daemon() {
                             self.sizer.changed(&self.folder, names);
                         }
                     }
@@ -136,7 +165,78 @@ impl Explorer {
             }
         }
         let mut resort = false;
+        let mut rewatch = false;
+        while let Ok(msg) = self.daemon.rx.try_recv() {
+            match msg {
+                rep::Msg::Up => {
+                    if !self.daemon_up || !self.decided {
+                        self.daemon_up = true;
+                        self.decided = true;
+                        self.not_indexed.clear();
+                        rewatch = true;
+                    }
+                }
+                rep::Msg::Down => {
+                    if self.daemon_up || !self.decided {
+                        self.daemon_up = false;
+                        self.decided = true;
+                        rewatch = true;
+                    }
+                }
+                rep::Msg::NotIndexed(p) => {
+                    if self.not_indexed.insert(p.clone()) && (p == self.folder || self.wants(&p)) {
+                        rewatch = true;
+                    }
+                }
+                rep::Msg::Size(msg) => {
+                    if !self.uses_daemon() {
+                        continue;
+                    }
+                    if let SizeMsg::State(s) = &msg {
+                        self.source = s.clone();
+                        changed = true;
+                        continue;
+                    }
+                    let ours = match &msg {
+                        SizeMsg::Child { folder, .. } | SizeMsg::Done { folder, .. } => self.wants(folder),
+                        SizeMsg::Folder(f) => self.wants(&f.path),
+                        SizeMsg::State(_) => false,
+                    };
+                    if ours && sizes::apply(&mut self.sizes, &msg) {
+                        changed = true;
+                        resort = true;
+                    }
+                }
+                rep::Msg::Top { path, folders } => {
+                    if path == self.folder {
+                        self.top = Some((path, folders));
+                        changed = true;
+                    }
+                }
+            }
+        }
+        while let Ok(r) = self.searcher.rx.try_recv() {
+            if let Some(v) = self.search.as_mut().filter(|v| v.generation == r.generation) {
+                v.hits = r.hits;
+                v.done = r.done;
+                v.partial = r.partial;
+                v.indexed = r.indexed;
+                v.cursor = v.cursor.min(v.hits.len().saturating_sub(1));
+                changed = true;
+            }
+        }
+        if !self.decided && self.started.elapsed() > Duration::from_millis(300) {
+            self.decided = true;
+            rewatch = true;
+        }
+        if rewatch {
+            self.watch_sizes();
+            changed = true;
+        }
         while let Ok(msg) = self.sizer.rx.try_recv() {
+            if self.uses_daemon() {
+                continue;
+            }
             if let SizeMsg::State(s) = &msg {
                 self.source = s.clone();
                 continue;
@@ -167,17 +267,80 @@ impl Explorer {
         path == self.folder || self.expanded.get(&self.folder).is_some_and(|e| e.contains(path))
     }
 
+    /// The open folder's sizes come from répertoire.
+    pub fn uses_daemon(&self) -> bool {
+        self.daemon_up && !self.not_indexed.contains(&self.folder)
+    }
+
     /// Ask the size source for the open folder and its expanded rows, the
-    /// rows on screen first.
+    /// rows on screen first. What's shown stays until the new answers come,
+    /// so switching sources has no gap.
     pub fn watch_sizes(&mut self) {
+        if !self.decided || !self.is_current() && self.listing.path != self.folder {
+            return;
+        }
         let order: Vec<OsString> = self.order(Pane::Folders).into_iter().map(OsStr::to_owned).collect();
         let expanded: Vec<PathBuf> = self.expanded.get(&self.folder).map(|e| e.iter().cloned().collect()).unwrap_or_default();
         self.sizes.retain(|p, _| *p == self.folder || expanded.contains(p));
-        self.sizer.watch(&self.folder, order, expanded);
+        if self.uses_daemon() {
+            self.sizer.idle();
+            self.daemon.watch(&self.folder, expanded);
+        } else {
+            self.source = SourceState::OwnScan { busy: true };
+            self.sizer.watch(&self.folder, order, expanded);
+        }
+    }
+
+    /// Search for `text` under the open folder (or everywhere). An empty
+    /// text closes the search.
+    pub fn set_search(&mut self, text: &str, everywhere: bool) {
+        if text.trim().is_empty() {
+            self.close_search();
+            return;
+        }
+        let query = Query { text: text.trim().to_string(), under: (!everywhere).then(|| self.folder.clone()), show_hidden: self.show_hidden };
+        let generation = self.searcher.search(query, self.daemon_up);
+        let cursor = self.search.as_ref().map_or(0, |v| v.cursor);
+        self.search = Some(SearchView { text: text.to_string(), everywhere, generation, hits: Vec::new(), done: false, partial: false, indexed: false, cursor });
+    }
+
+    pub fn close_search(&mut self) {
+        self.searcher.cancel();
+        self.search = None;
+    }
+
+    /// Open a search result: folders here, files with their app. With
+    /// `in_folder`, open the folder containing it with it selected.
+    pub fn open_hit(&mut self, hit: &Hit, in_folder: bool) -> Activate {
+        self.close_search();
+        let opens_as_folder = hit.kind == Kind::Dir;
+        if in_folder || !opens_as_folder {
+            if let (Some(parent), Some(name)) = (hit.path.parent(), hit.path.file_name()) {
+                if in_folder {
+                    self.history.push(self.folder.clone(), self.cursor_name());
+                    self.go(parent.to_path_buf(), Some(name.to_owned()));
+                    return Activate::Opened;
+                }
+            }
+            return Activate::File(hit.path.clone());
+        }
+        self.open(hit.path.clone());
+        Activate::Opened
+    }
+
+    /// répertoire's biggest folders anywhere below the open one.
+    pub fn request_top(&mut self) {
+        self.top = None;
+        if self.uses_daemon() {
+            self.daemon.top(&self.folder, 20);
+        }
     }
 
     /// Size these rows first (they're on screen).
     pub fn prioritize(&mut self, visible: Vec<OsString>) {
+        if self.uses_daemon() || !self.decided {
+            return;
+        }
         let mut order = visible;
         for n in self.order(Pane::Folders) {
             if !order.iter().any(|o| o == n) {
@@ -210,6 +373,7 @@ impl Explorer {
 
     fn go(&mut self, folder: PathBuf, cursor: Option<OsString>) {
         self.generation += 1;
+        self.top = None;
         self.folder = folder;
         self.opened_at = Instant::now();
         self.pending_cursor = cursor;
@@ -252,8 +416,12 @@ impl Explorer {
     /// F5: list again and measure again.
     pub fn refresh(&mut self) {
         self.lister.refresh();
-        self.sizes.clear();
-        self.sizer.forget(&self.folder);
+        if self.uses_daemon() {
+            self.watch_sizes();
+        } else {
+            self.sizes.clear();
+            self.sizer.forget(&self.folder);
+        }
     }
 
     pub fn toggle_hidden(&mut self) {
@@ -396,6 +564,33 @@ fn files_changed(before: &Listing, after: &Listing) -> bool {
         v
     };
     sig(before) != sig(after)
+}
+
+/// Search results shown instead of the panes.
+#[derive(Clone, Debug)]
+pub struct SearchView {
+    pub text: String,
+    pub everywhere: bool,
+    pub generation: u64,
+    pub hits: Vec<Hit>,
+    pub done: bool,
+    pub partial: bool,
+    /// From répertoire's index (otherwise a walk of the folder).
+    pub indexed: bool,
+    pub cursor: usize,
+}
+
+/// Where sizes come from.
+pub struct Sources {
+    pub socket: PathBuf,
+    /// How often to look for répertoire while it isn't there.
+    pub retry: Duration,
+}
+
+impl Default for Sources {
+    fn default() -> Self {
+        Sources { socket: repertoire_proto::socket_path(), retry: Duration::from_secs(60) }
+    }
 }
 
 pub enum Activate {

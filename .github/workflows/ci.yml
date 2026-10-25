@@ -34,3 +34,10 @@ jobs:
       - run: cargo build --all-targets
       - run: cargo clippy --all-targets
       - run: cargo test
+      # The live-daemon tests (répertoire at the pinned commit, as a library,
+      # watching with fanotify) need root.
+      - name: Tests as root
+        run: |
+          sudo env "PATH=$PATH" "HOME=$HOME" "RUSTUP_HOME=${RUSTUP_HOME:-$HOME/.rustup}" \
+            "CARGO_HOME=${CARGO_HOME:-$HOME/.cargo}" CARGO_TARGET_DIR=target-root \
+            RUSTFLAGS="$RUSTFLAGS" cargo test

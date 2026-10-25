@@ -121,7 +121,32 @@ fn nested(w: &Window, path: &Path, total: Option<u64>, depth: usize, out: &mut V
 pub fn show(ui: &mut egui::Ui, w: &mut Window) {
     let n = w.explorer.folders.len();
     let total = w.explorer.folder_sizes().map(|s| (s.total, s.complete));
-    pane_header(ui, &format!("Folders ({})", thousands(n as u64)), |ui| {
+    // "Biggest folders here" needs répertoire (otherwise a full walk).
+    if w.show_top && (!w.explorer.uses_daemon() || w.top_for.as_ref() != Some(&w.explorer.folder)) {
+        w.show_top = false;
+    }
+    let title = if w.show_top { "Biggest folders here".to_string() } else { format!("Folders ({})", thousands(n as u64)) };
+    pane_header(ui, &title, |ui| {
+        if w.explorer.uses_daemon() {
+            let label = if w.show_top { "back to folders" } else { "biggest" };
+            let g = ui.fonts_mut(|f| f.layout_no_wrap(label.to_string(), font(12.0), TEXT_2));
+            let (r, resp) = ui.allocate_exact_size(g.size() + vec2(12.0, 8.0), Sense::click());
+            ui.painter().rect_stroke(r, CornerRadius::same(5), Stroke::new(1.0, if resp.hovered() { MUTED } else { BORDER }), StrokeKind::Inside);
+            ui.painter().galley(r.center() - g.size() / 2.0, g, TEXT_2);
+            let resp = resp.on_hover_text("The 20 largest folders anywhere below this one (répertoire)").on_hover_cursor(egui::CursorIcon::PointingHand);
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
+            if resp.clicked() {
+                w.show_top = !w.show_top;
+                if w.show_top {
+                    w.top_for = Some(w.explorer.folder.clone());
+                    w.explorer.request_top();
+                }
+            }
+            ui.add_space(8.0);
+        }
+        if w.show_top {
+            return;
+        }
         if let Some((t, complete)) = total {
             let text = if complete { bytes(t as f64) } else { format!("≥ {}", bytes(t as f64)) };
             ui.label(egui::RichText::new(text).font(strong(13.0)).color(TEXT)).on_hover_text(if complete { "This folder's total" } else { "Still measuring: at least this much" });
@@ -133,6 +158,10 @@ pub fn show(ui: &mut egui::Ui, w: &mut Window) {
             w.explorer.rebuild();
         }
     });
+    if w.show_top {
+        top_list(ui, w, total.map(|t| t.0));
+        return;
+    }
     let rows = rows(w);
     if rows.is_empty() {
         if let Some(m) = Message::for_pane(&w.explorer, n, "No subfolders") {
@@ -337,4 +366,39 @@ fn folder_tip(ui: &mut egui::Ui, name: &str, size: Option<&ChildSize>, count: Op
         }
     }
     ui.label(egui::RichText::new(format!("Modified {}", super::widgets::date(mtime))).color(MUTED));
+}
+
+/// répertoire's biggest folders anywhere below the open one, as a flat
+/// list with paths relative to it and bars as a share of its total.
+fn top_list(ui: &mut egui::Ui, w: &mut Window, total: Option<u64>) {
+    let Some((_, folders)) = w.explorer.top.clone() else {
+        ui.add_space(24.0);
+        ui.vertical_centered(|ui| ui.label(egui::RichText::new("Asking répertoire…").color(MUTED)));
+        return;
+    };
+    let base = w.explorer.folder.clone();
+    egui::ScrollArea::vertical().id_salt("top-scroll").auto_shrink([false, false]).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.y = 0.0;
+        for (path, bytes_) in folders {
+            let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::click());
+            let rel = path.strip_prefix(&base).map(|r| r.display().to_string()).unwrap_or_else(|_| path.display().to_string());
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, &rel));
+            let inner = rect.shrink2(vec2(6.0, 1.0));
+            let p = ui.painter().clone();
+            if resp.hovered() {
+                p.rect_filled(inner, CornerRadius::same(5), SURFACE_HOVER);
+            }
+            let glyph = Rect::from_center_size(pos2(inner.left() + 18.0, inner.center().y), vec2(16.0, 14.0));
+            icons::folder(&p, glyph, icons::tint(Category::Folder));
+            let right = bar(&p, inner, Some(bytes_), total, &bytes(bytes_ as f64), false);
+            let x = glyph.right() + 8.0;
+            // The end of the path is what matters.
+            let g = super::text::one_line(ui, &rel, right - 10.0 - x, font(13.0), TEXT);
+            p.galley(pos2(x, inner.center().y - g.size().y / 2.0), g, TEXT);
+            if resp.on_hover_text(path.display().to_string()).clicked() {
+                w.show_top = false;
+                w.explorer.open(path.clone());
+            }
+        }
+    });
 }

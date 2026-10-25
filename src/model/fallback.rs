@@ -38,6 +38,8 @@ enum Cmd {
     Changed { folder: PathBuf, names: Vec<OsString> },
     /// Forget everything about `folder` and below (F5).
     Forget { folder: PathBuf },
+    /// Stop working (répertoire took over).
+    Idle,
 }
 
 pub struct Fallback {
@@ -72,6 +74,13 @@ impl Fallback {
 
     pub fn changed(&self, folder: &Path, names: Vec<OsString>) {
         let _ = self.tx.send(Cmd::Changed { folder: folder.to_path_buf(), names });
+    }
+
+    /// Stop measuring: another source answers now.
+    pub fn idle(&mut self) {
+        self.cancel.lock().unwrap().store(true, Ordering::Relaxed);
+        self.watching = PathBuf::new();
+        let _ = self.tx.send(Cmd::Idle);
     }
 
     pub fn forget(&self, folder: &Path) {
@@ -201,6 +210,12 @@ impl Worker {
                     let cancel = self.cancel_slot.lock().unwrap().clone();
                     self.jobs.push_front(Job { folder, todo: names.into(), mounts: Vec::new(), cancel });
                 }
+            }
+            Cmd::Idle => {
+                self.jobs.clear();
+                self.waiting.clear();
+                self.folder = PathBuf::new();
+                *self.cancel_slot.lock().unwrap() = Arc::new(AtomicBool::new(false));
             }
             Cmd::Forget { folder } => {
                 self.kept.retain(|k| !k.root.starts_with(&folder) && !folder.starts_with(&k.root));

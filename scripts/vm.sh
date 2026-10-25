@@ -37,9 +37,9 @@ create)
     ;;
 test)
     shift
-    in_vm "export CARGO_TARGET_DIR=\$HOME/target-fractale; cargo test $* && \
+    in_vm "export CARGO_TARGET_DIR=\$HOME/target-fractale CARGO_BUILD_JOBS=3; cargo test $* && \
         sudo env PATH=\$PATH HOME=\$HOME RUSTUP_HOME=\$HOME/.rustup CARGO_HOME=\$HOME/.cargo \
-            CARGO_TARGET_DIR=\$HOME/target-fractale-root cargo test $*"
+            CARGO_TARGET_DIR=\$HOME/target-fractale-root CARGO_BUILD_JOBS=3 cargo test $*"
     ;;
 run)
     shift

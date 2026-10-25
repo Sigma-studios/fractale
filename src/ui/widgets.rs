@@ -164,3 +164,13 @@ fn local(secs: i64) -> Option<Local> {
         Some(Local { year: tm.tm_year + 1900, yday: tm.tm_yday, mon: tm.tm_mon, mday: tm.tm_mday, hour: tm.tm_hour, min: tm.tm_min })
     }
 }
+
+/// A status dot and its label as one unit (Sentinelle's badge): status
+/// colours never come alone.
+pub fn status_badge(ui: &mut egui::Ui, color: egui::Color32, label: &str) -> egui::Response {
+    let g = ui.fonts_mut(|f| f.layout_no_wrap(label.to_string(), font(12.0), TEXT_2));
+    let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 14.0, g.size().y.max(14.0)), Sense::hover());
+    ui.painter().circle_filled(egui::pos2(r.left() + 3.5, r.center().y), 3.5, color);
+    ui.painter().galley(egui::pos2(r.left() + 14.0, r.center().y - g.size().y / 2.0), g, TEXT_2);
+    resp
+}

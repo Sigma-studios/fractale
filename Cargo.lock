@@ -1133,8 +1133,10 @@ dependencies = [
  "libc",
  "notify",
  "rayon",
+ "repertoire",
  "repertoire-core",
  "repertoire-proto",
+ "serde_json",
 ]
 
 [[package]]
@@ -2674,12 +2676,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
+name = "repertoire"
+version = "0.1.0"
+source = "git+https://github.com/Sigma-studios/repertoire?rev=fd764be55fea9dc3547fbebcabb7a87156ffd17d#fd764be55fea9dc3547fbebcabb7a87156ffd17d"
+dependencies = [
+ "libc",
+ "rayon",
+ "repertoire-core",
+ "repertoire-linux",
+ "repertoire-proto",
+ "serde_json",
+]
+
+[[package]]
 name = "repertoire-core"
 version = "0.1.0"
 source = "git+https://github.com/Sigma-studios/repertoire?rev=fd764be55fea9dc3547fbebcabb7a87156ffd17d#fd764be55fea9dc3547fbebcabb7a87156ffd17d"
 dependencies = [
  "libc",
  "rayon",
+]
+
+[[package]]
+name = "repertoire-linux"
+version = "0.1.0"
+source = "git+https://github.com/Sigma-studios/repertoire?rev=fd764be55fea9dc3547fbebcabb7a87156ffd17d#fd764be55fea9dc3547fbebcabb7a87156ffd17d"
+dependencies = [
+ "libc",
+ "repertoire-core",
 ]
 
 [[package]]

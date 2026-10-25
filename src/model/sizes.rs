@@ -102,10 +102,13 @@ pub fn apply(folders: &mut HashMap<PathBuf, FolderSizes>, msg: &SizeMsg) -> bool
         }
         SizeMsg::Done { folder, total, files_here, hidden, complete } => {
             let f = folders.entry(folder.clone()).or_insert_with(|| FolderSizes::new(folder.clone()));
-            f.total = *total;
             f.files_here = *files_here;
             f.hidden = *hidden;
             f.complete = *complete;
+            // While measuring, what's known so far (subfolders from a
+            // previous source stay until they're measured again, so a
+            // switch has no gap).
+            f.total = if *complete { *total } else { f.files_here + f.children_total() };
             true
         }
         SizeMsg::State(_) => false,
