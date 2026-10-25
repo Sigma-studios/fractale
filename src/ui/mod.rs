@@ -6,6 +6,7 @@ pub mod icons;
 pub mod ops;
 pub mod previews;
 mod search;
+mod system;
 mod status;
 mod text;
 pub mod theme;
@@ -104,13 +105,14 @@ pub fn run(start: Start, remote: Option<crate::model::remote::Remote>) -> eframe
             if let Some(r) = remote {
                 window.attach_remote(r);
             }
-            Ok(Box::new(App { window, screenshot: std::env::var("FRACTALE_SCREENSHOT").ok().map(|p| (p, false)) }))
+            Ok(Box::new(App { window, system: system::System::default(), screenshot: std::env::var("FRACTALE_SCREENSHOT").ok().map(|p| (p, false)) }))
         }),
     )
 }
 
 struct App {
     window: Window,
+    system: system::System,
     /// `FRACTALE_SCREENSHOT=out.ppm`: save the window after
     /// `FRACTALE_SCREENSHOT_DELAY` seconds (default 1) and quit.
     screenshot: Option<(String, bool)>,
@@ -147,6 +149,7 @@ impl eframe::App for App {
     /// With egui's clipboard shortcuts off, a focused text field gets
     /// copy, cut and paste from here.
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        self.system.input(ctx, raw, &mut self.window);
         if !ctx.egui_wants_keyboard_input() {
             return;
         }
@@ -173,9 +176,11 @@ impl eframe::App for App {
         BG.to_normalized_gamma_f32()
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        self.window.ui(ui);
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.system.start(&ctx, frame, &mut self.window);
+        self.window.ui(ui);
+        self.system.output(&ctx, &mut self.window);
         self.handle_screenshot(&ctx);
     }
 }
@@ -213,6 +218,14 @@ pub struct Window {
     /// Requests from a second launch or another app.
     remote: Option<crate::model::remote::Remote>,
     pub opener: crate::model::opener::Opener,
+    /// The system clipboard is ours to use (Wayland data device running).
+    pub system_clipboard: bool,
+    /// Items being dragged: start a system drag after this frame.
+    pub system_drag: Option<Vec<PathBuf>>,
+    /// Paste the system clipboard into this folder.
+    pub paste_request: Option<PathBuf>,
+    /// Folder rows on screen this frame (drop targets for other apps).
+    pub drop_rows: Vec<(egui::Rect, PathBuf)>,
 }
 
 /// What a pane's scroll area looked like last frame, to scroll the cursor
@@ -259,6 +272,10 @@ impl Window {
             ops: ops::OpsUi::default(),
             remote: None,
             opener,
+            system_clipboard: false,
+            system_drag: None,
+            paste_request: None,
+            drop_rows: Vec::new(),
         }
     }
 
@@ -303,6 +320,7 @@ impl Window {
         let started = Instant::now();
         let _ = self.ctx.set(ui.ctx().clone());
         self.explorer.poll();
+        self.drop_rows.clear();
         self.serve_remote(ui.ctx());
         self.poll_opener();
         self.ops_frame();

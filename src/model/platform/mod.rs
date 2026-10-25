@@ -3,6 +3,8 @@
 
 use std::path::Path;
 
+pub mod wayland;
+
 /// Open a file with the desktop's default application, detached.
 pub fn open_default(path: &Path) {
     #[cfg(target_os = "macos")]

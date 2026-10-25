@@ -85,6 +85,16 @@ impl Window {
         ctx.copy_text(text);
     }
 
+    /// Paste files: the system clipboard's when there is one (what Dolphin
+    /// copied, or ours), else Fractale's own.
+    pub fn paste_into(&mut self, dest: PathBuf) {
+        if self.system_clipboard {
+            self.paste_request = Some(dest);
+        } else {
+            self.explorer.paste(dest);
+        }
+    }
+
     /// File shortcuts (no text field focused). True if handled.
     pub fn ops_key(&mut self, ctx: &egui::Context, key: Key, m: egui::Modifiers) -> bool {
         let cmd = m.command;
@@ -97,7 +107,7 @@ impl Window {
             Key::X if cmd => self.explorer.copy_selection(true),
             Key::V if cmd => {
                 let dest = self.explorer.folder.clone();
-                self.explorer.paste(dest);
+                self.paste_into(dest);
             }
             Key::N if cmd && m.shift => self.explorer.new_folder(),
             _ => return false,
@@ -148,8 +158,8 @@ pub fn item_menu(ui: &mut egui::Ui, w: &mut Window) {
         w.explorer.copy_selection(false);
         ui.close();
     }
-    if folder && w.explorer.clipboard.is_some() && ui.button("Paste into this folder").clicked() {
-        w.explorer.paste(paths[0].clone());
+    if folder && (w.explorer.clipboard.is_some() || w.system_clipboard) && ui.button("Paste into this folder").clicked() {
+        w.paste_into(paths[0].clone());
         ui.close();
     }
     if ui.add(egui::Button::new(if single { "Copy path" } else { "Copy paths" }).shortcut_text(shortcut("Shift+C"))).clicked() {
@@ -178,9 +188,9 @@ pub fn background_menu(ui: &mut egui::Ui, w: &mut Window) {
         None => "Paste".into(),
     })
     .shortcut_text(shortcut("V"));
-    if ui.add_enabled(w.explorer.clipboard.is_some(), paste).clicked() {
+    if ui.add_enabled(w.explorer.clipboard.is_some() || w.system_clipboard, paste).clicked() {
         let dest = w.explorer.folder.clone();
-        w.explorer.paste(dest);
+        w.paste_into(dest);
         ui.close();
     }
     if ui.add(egui::Button::new("New folder").shortcut_text(shortcut("Shift+N"))).clicked() {
@@ -254,6 +264,8 @@ pub fn drag_source(ui: &egui::Ui, w: &mut Window, resp: &egui::Response, pane: P
         }
         let paths = w.explorer.selected_paths();
         let devs = paths.iter().filter_map(|p| p.file_name()).filter_map(|n| w.explorer.find(n)).map(|e| e.dev).collect();
+        // Also a system drag, so other apps can take the files.
+        w.system_drag = Some(paths.clone());
         resp.dnd_set_drag_payload(Dragged { paths, devs });
     }
     if resp.dragged() {
@@ -273,6 +285,7 @@ pub fn drag_source(ui: &egui::Ui, w: &mut Window, resp: &egui::Response, pane: P
 /// Make a folder row a drop target; returns whether something is hovering
 /// it (to highlight).
 pub fn drop_target(ui: &egui::Ui, w: &mut Window, resp: &egui::Response, folder: &Path, dev: u64) -> bool {
+    w.drop_rows.push((resp.rect, folder.to_path_buf()));
     let Some(d) = resp.dnd_hover_payload::<Dragged>() else { return false };
     // Not onto itself or into itself.
     if d.paths.iter().any(|p| folder.starts_with(p) || p.parent() == Some(folder)) {

@@ -17,6 +17,7 @@ rayon = "1.10"
 # running (same rules, so numbers don't jump), and its client.
 repertoire-core = { git = "https://github.com/Sigma-studios/repertoire", rev = "fd764be55fea9dc3547fbebcabb7a87156ffd17d" }
 repertoire-proto = { git = "https://github.com/Sigma-studios/repertoire", rev = "fd764be55fea9dc3547fbebcabb7a87156ffd17d" }
+raw-window-handle = "0.6"
 # Previews.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff", "qoi", "tga", "ico", "hdr", "pnm"] }
 # Decodes JPEGs at 1/2, 1/4 or 1/8 scale, much faster for big photos.
@@ -38,6 +39,10 @@ orchestre-dsp = { git = "https://github.com/Sigma-studios/orchestre", rev = "996
 # The desktop's file manager interface (org.freedesktop.FileManager1) and
 # one running instance.
 [target.'cfg(target_os = "linux")'.dependencies]
+# The Wayland data device (clipboard with files, drag and drop with other
+# apps), on winit's connection: same versions and feature as winit's.
+wayland-client = "0.31.10"
+wayland-backend = { version = "0.3.10", features = ["client_system"] }
 # 5.x: zbus 6 dropped the blocking API, and Fractale has no async runtime.
 zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"] }
 
