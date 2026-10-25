@@ -15,6 +15,15 @@ pub fn show(ui: &mut egui::Ui, w: &mut Window) {
         if let Some((total, used)) = ex.listing.space {
             ui.label(RichText::new(format!("{} of {} used", bytes(used as f64), bytes(total as f64))).color(MUTED));
         }
+        // What just failed (renaming, opening…), for a few seconds.
+        if let Some((text, at)) = &ex.notice {
+            let left = std::time::Duration::from_secs(8).saturating_sub(at.elapsed());
+            if !left.is_zero() {
+                ui.add_space(10.0);
+                ui.label(RichText::new(text).color(SERIOUS));
+                ui.ctx().request_repaint_after(left);
+            }
+        }
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let selected = ex.selection.items.len();
             let text = if selected > 0 {

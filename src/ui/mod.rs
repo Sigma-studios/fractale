@@ -212,6 +212,7 @@ pub struct Window {
     pub ops: ops::OpsUi,
     /// Requests from a second launch or another app.
     remote: Option<crate::model::remote::Remote>,
+    pub opener: crate::model::opener::Opener,
 }
 
 /// What a pane's scroll area looked like last frame, to scroll the cursor
@@ -233,6 +234,7 @@ impl Window {
         let waker = ctx.clone();
         let thumbnails = start.sources.thumbnails.clone();
         let previews = previews::Previews::new(thumbnails, Arc::new(wake(&ctx)));
+        let opener = crate::model::opener::Opener::spawn(Arc::new(wake(&ctx)));
         let select = start.select.as_ref().and_then(|s| s.file_name()).map(|n| n.to_owned());
         let explorer = Explorer::with_sources(start.folder, select, start.sources, wake(&waker));
         Window {
@@ -256,6 +258,23 @@ impl Window {
             previews,
             ops: ops::OpsUi::default(),
             remote: None,
+            opener,
+        }
+    }
+
+    fn poll_opener(&mut self) {
+        use crate::model::opener::Reply;
+        while let Ok(r) = self.opener.rx.try_recv() {
+            match r {
+                Reply::AskRun(p) => self.ops.ask_run = Some(p),
+                Reply::Apps { files, mime, apps } => {
+                    if let Some(ow) = self.ops.open_with.as_mut().filter(|o| o.files == files) {
+                        ow.apps = Some(apps);
+                        ow.mime = mime;
+                    }
+                }
+                Reply::Failed(e) => self.explorer.notice = Some((format!("Couldn't open: {e}"), Instant::now())),
+            }
         }
     }
 
@@ -285,6 +304,7 @@ impl Window {
         let _ = self.ctx.set(ui.ctx().clone());
         self.explorer.poll();
         self.serve_remote(ui.ctx());
+        self.poll_opener();
         self.ops_frame();
         self.debounce_search(ui.ctx());
         if self.explorer.search.is_some() {
@@ -333,13 +353,8 @@ impl Window {
                 }
             });
         }
-        for path in std::mem::take(&mut self.opened) {
-            if self.launch {
-                crate::model::platform::open_default(&path);
-            } else {
-                self.opened.push(path);
-                break;
-            }
+        if self.launch && !self.opened.is_empty() {
+            self.opener.send(crate::model::opener::Req::Open(std::mem::take(&mut self.opened)));
         }
         self.stats.record(started.elapsed());
     }
