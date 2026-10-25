@@ -4,11 +4,11 @@
 //! poppler, fonts, office documents… Whatever the system has, Fractale
 //! uses, so `nix-env -iA ffmpegthumbnailer` is how to add video previews.
 //!
-//! A file's MIME type comes from shared-mime-info's `globs2` (by name; the
-//! content-sniffing `magic` rules aren't read, which only matters for
-//! files without a telling extension). Thumbnailers run as a child process
-//! of the low-priority worker (so they inherit its priority), with a
-//! timeout, writing to a private temporary file.
+//! A file's MIME type comes from shared-mime-info (by name, then content;
+//! see `apps`), so a video without an extension still finds its
+//! thumbnailer. Thumbnailers run as a child process of the low-priority
+//! worker (so they inherit its priority), with a timeout, writing to a
+//! private temporary file.
 
 use super::super::{FileInfo, Previewer, Rendered};
 use std::collections::HashMap;
@@ -30,6 +30,8 @@ pub struct Thumbnailer {
     mime: Vec<String>,
     db: Arc<MimeDb>,
 }
+
+use crate::model::apps::MimeDb;
 
 /// Every installed thumbnailer whose program exists, user's first (they
 /// override the system's).
@@ -138,7 +140,9 @@ impl Previewer for Thumbnailer {
     }
 
     fn accepts(&self, f: &FileInfo) -> bool {
-        self.db.mime_of(&f.path).is_some_and(|m| self.mime.iter().any(|t| t == m || (t.ends_with("/*") && m.starts_with(&t[..t.len() - 1]))))
+        // Found once per file (every thumbnailer asks), by name then content.
+        let m = f.mime.get_or_init(|| self.db.type_of(&f.path));
+        self.mime.iter().any(|t| t == m || self.db.is_a(m, t) || (t.ends_with("/*") && m.starts_with(&t[..t.len() - 1])))
     }
 
     fn render(&self, f: &FileInfo, max: u32) -> Result<Rendered, String> {
@@ -222,60 +226,6 @@ impl Drop for TempDir {
     }
 }
 
-/// shared-mime-info's name rules.
-#[derive(Default)]
-pub struct MimeDb {
-    /// Lowercase extension (possibly with dots, like `tar.gz`) → (weight,
-    /// type).
-    ext: HashMap<String, (u32, String)>,
-    /// Whole lowercase names (`makefile`).
-    names: HashMap<String, (u32, String)>,
-}
-
-impl MimeDb {
-    pub fn load(dirs: &[PathBuf]) -> MimeDb {
-        let mut db = MimeDb::default();
-        // Earlier directories take precedence: read later ones first.
-        for d in dirs.iter().rev() {
-            let Ok(text) = std::fs::read_to_string(d.join("mime/globs2")) else { continue };
-            for line in text.lines().filter(|l| !l.starts_with('#')) {
-                let mut f = line.split(':');
-                let (Some(w), Some(mime), Some(glob)) = (f.next(), f.next(), f.next()) else { continue };
-                let w: u32 = w.parse().unwrap_or(50);
-                let glob = glob.to_lowercase();
-                let (map, key) = match glob.strip_prefix("*.") {
-                    Some(e) if !e.contains(['*', '?', '[']) => (&mut db.ext, e.to_string()),
-                    None if !glob.contains(['*', '?', '[']) => (&mut db.names, glob),
-                    _ => continue,
-                };
-                match map.get(&key) {
-                    Some((old, _)) if *old > w => {}
-                    _ => {
-                        map.insert(key, (w, mime.to_string()));
-                    }
-                }
-            }
-        }
-        db
-    }
-
-    pub fn mime_of(&self, path: &Path) -> Option<&str> {
-        let name = path.file_name()?.to_string_lossy().to_lowercase();
-        if let Some((_, m)) = self.names.get(&name) {
-            return Some(m);
-        }
-        // The longest matching extension wins (`.tar.gz` over `.gz`).
-        let mut i = 0;
-        while let Some(dot) = name[i..].find('.') {
-            i += dot + 1;
-            if let Some((_, m)) = self.ext.get(&name[i..]) {
-                return Some(m);
-            }
-        }
-        None
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,8 +263,8 @@ mod tests {
         let all = installed_in(std::slice::from_ref(&dir));
         assert_eq!(all.iter().map(|t| t.name()).collect::<Vec<_>>(), ["fake", "slow"]);
         let db = MimeDb::load(std::slice::from_ref(&dir));
-        assert_eq!(db.mime_of(Path::new("a.tar.gz")), Some("application/x-tgz"));
-        assert_eq!(db.mime_of(Path::new("A.GZ")), Some("application/x-gz"));
+        assert_eq!(db.type_of_name("a.tar.gz").as_deref(), Some("application/x-tgz"));
+        assert_eq!(db.type_of_name("A.GZ").as_deref(), Some("application/x-gz"));
 
         let clip = FileInfo::new(dir.join("clip.fake"), 10, 0);
         let t = all.iter().find(|t| t.accepts(&clip)).unwrap();
