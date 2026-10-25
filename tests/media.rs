@@ -1,4 +1,4 @@
-//! Resting the pointer on a video plays it in its tile after a second;
+//! Resting the pointer on a video plays it in its tile after 200 ms;
 //! moving away stops it.
 
 mod common;
@@ -26,12 +26,12 @@ fn hovering_a_video_plays_it_and_leaving_stops_it() {
     let tile = h.get_by_label("clip.mp4").rect().center();
     h.event(egui::Event::PointerMoved(tile));
     let start = Instant::now();
-    // Not before a second.
+    // Not before the delay.
     h.run_steps(3);
     assert!(h.state().media.playing.is_none());
     let took = until(&mut h, Duration::from_secs(5), "playback", |w| w.media.is_playing(&clip));
     eprintln!("started after {:?}", start.elapsed());
-    assert!(start.elapsed() >= Duration::from_millis(950), "waited a second ({took:?})");
+    assert!(start.elapsed() >= Duration::from_millis(190), "waited the delay ({took:?})");
     // Frames reach the tile.
     let frame_seen = {
         let deadline = Instant::now() + Duration::from_secs(5);

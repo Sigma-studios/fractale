@@ -100,7 +100,8 @@ Fractale share work. Failures go to `fail/fractale-<version>/`.
 | Videos nothing else took | one frame from 10% in, with `ffmpeg` |
 
 **Playing on hover:** resting the pointer on a video, an audio file or an
-Orchestre file for a second plays it, and moving away stops it.
+Orchestre file for 200 ms plays it, and moving away stops it.
+`FRACTALE_HOVER_DELAY_MS` changes the wait (`0` plays at once).
 - Videos play muted inside the tile, from 10% in, looping.
 - Audio files play from the start through the default output, with a
   progress bar.
@@ -108,7 +109,7 @@ Orchestre file for a second plays it, and moving away stops it.
   synth.
 
 Measured on macOS: a video's first frame arrives 115 ms after it starts.
-Playback starts 1.0 s after the pointer stops.
+Playback starts 200 ms after the pointer stops (by default).
 
 **Thumbnailer packages worth installing:**
 - `ffmpegthumbnailer` (videos)
