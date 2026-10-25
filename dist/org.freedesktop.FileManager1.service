@@ -1,0 +1,7 @@
+# D-Bus activation: "show in folder" starts Fractale when no file manager
+# is running. Only install this if Fractale is the desktop's file manager
+# (Dolphin ships the same file).
+[D-BUS Service]
+Name=org.freedesktop.FileManager1
+# The packager replaces the path (on NixOS, the store path).
+Exec=/usr/bin/fractale

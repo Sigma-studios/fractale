@@ -14,7 +14,7 @@ use super::Window;
 use crate::model::entry::Category;
 use crate::model::listing::Count;
 use crate::model::sizes::ChildSize;
-use crate::model::view::{Mods, Pane, SortBy};
+use crate::model::view::{Pane, SortBy};
 use eframe::egui::{self, pos2, vec2, Align2, Color32, CornerRadius, Rect, Sense, Stroke, StrokeKind};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -265,7 +265,7 @@ fn row(ui: &mut egui::Ui, w: &mut Window, r: &Row) {
                 w.explorer.toggle_expanded(path.clone());
                 return;
             }
-            let mods = ui.input(|i| Mods { toggle: i.modifiers.command, range: i.modifiers.shift });
+            let mods = super::widgets::click_mods(ui);
             if resp.clicked() {
                 w.focus = Pane::Folders;
                 if *top && (mods.toggle || mods.range) {

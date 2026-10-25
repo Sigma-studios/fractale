@@ -9,7 +9,7 @@ use super::previews::Previews;
 use super::Window;
 use crate::model::entry::{Entry, Kind};
 use crate::model::explorer::Layout as FileLayout;
-use crate::model::view::{Mods, Pane, SortBy};
+use crate::model::view::{Pane, SortBy};
 use eframe::egui::{self, pos2, vec2, Align2, CornerRadius, Rect, Sense, Stroke, StrokeKind};
 use std::os::unix::ffi::OsStrExt;
 
@@ -271,7 +271,7 @@ fn hover(resp: egui::Response, e: &Entry) -> egui::Response {
 fn interactions(ui: &egui::Ui, w: &mut Window, resp: &egui::Response, name: &std::ffi::OsStr) {
     super::ops::drag_source(ui, w, resp, Pane::Files, name);
     resp.context_menu(|ui| super::ops::item_menu(ui, w));
-    let mods = ui.input(|i| Mods { toggle: i.modifiers.command, range: i.modifiers.shift });
+    let mods = super::widgets::click_mods(ui);
     if resp.clicked() {
         w.focus = Pane::Files;
         w.explorer.click(Pane::Files, name, mods);

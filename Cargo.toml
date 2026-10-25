@@ -35,6 +35,12 @@ trash = { version = "5.2", default-features = false, features = ["chrono"] }
 orchestre-core = { git = "https://github.com/Sigma-studios/orchestre", rev = "9969a78e79d9b446de1bc563182834ae9b9afe45" }
 orchestre-dsp = { git = "https://github.com/Sigma-studios/orchestre", rev = "9969a78e79d9b446de1bc563182834ae9b9afe45" }
 
+# The desktop's file manager interface (org.freedesktop.FileManager1) and
+# one running instance.
+[target.'cfg(target_os = "linux")'.dependencies]
+# 5.x: zbus 6 dropped the blocking API, and Fractale has no async runtime.
+zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"] }
+
 # macOS (development only): the text clipboard through egui and arboard.
 # On Linux Fractale has its own Wayland data device (files and text), and
 # eframe's clipboard would be a second one on the same seat.
