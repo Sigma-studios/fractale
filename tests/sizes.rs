@@ -204,3 +204,73 @@ fn changes_are_measured_again() {
     until(&mut h, Duration::from_secs(10), "complete", |w| w.explorer.folder_sizes().is_some_and(|f| f.complete));
     assert_eq!(h.state().explorer.folder_sizes().unwrap().total, du(&s.0));
 }
+
+#[test]
+fn hidden_space_has_its_own_row_and_nested_rows_follow_the_sort() {
+    let s = Scratch::new("hidden-rows");
+    s.file("visible/a.bin", 100_000);
+    s.file(".cache/big.bin", 3_000_000);
+    s.file(".bashrc", 200_000);
+    s.file("note.txt", 50_000);
+    s.file("visible/zeta/x.bin", 400_000);
+    s.file("visible/alpha/x.bin", 900_000);
+    s.file("visible/.git/objects.bin", 600_000);
+    let mut h = window(&s.0);
+    listed(&mut h);
+    until(&mut h, Duration::from_secs(20), "sizes", |w| w.explorer.folder_sizes().is_some_and(|f| f.complete));
+    h.run_steps(2);
+    let total = h.state().explorer.folder_sizes().unwrap().total;
+    let top = |h: &H| rows(h.state()).into_iter().filter(|r| r.depth == 0).collect::<Vec<_>>();
+
+    // Hidden entries not shown: one row for them, and everything adds up.
+    let r = top(&h);
+    let hidden = r.iter().find_map(|r| match r.kind {
+        RowKind::Hidden { bytes, folders, files } => Some((bytes, folders, files)),
+        _ => None,
+    });
+    let (bytes, folders, files) = hidden.expect("a hidden row");
+    assert_eq!((folders, files), (1, 1));
+    let cache = h.state().explorer.folder_sizes().unwrap().children[OsStr::new(".cache")].total;
+    let bashrc = h.state().explorer.find(OsStr::new(".bashrc")).unwrap().bytes;
+    assert_eq!(bytes, cache + bashrc);
+    assert_eq!(r.iter().filter_map(|r| r.bytes()).sum::<u64>(), total, "rows add up with hidden space");
+    assert!(!r.iter().any(|r| matches!(&r.kind, RowKind::Folder { name, .. } if name == ".cache")));
+
+    // Shown: no hidden row, .cache is a row, still adds up.
+    h.state_mut().explorer.toggle_hidden();
+    h.run_steps(2);
+    let r = top(&h);
+    assert!(!r.iter().any(|r| matches!(r.kind, RowKind::Hidden { .. })));
+    assert!(r.iter().any(|r| matches!(&r.kind, RowKind::Folder { name, .. } if name == ".cache")));
+    assert_eq!(r.iter().filter_map(|r| r.bytes()).sum::<u64>(), total);
+    h.state_mut().explorer.toggle_hidden();
+
+    // Expanded rows: hidden subfolders get their row too, and the pane's
+    // sort applies (size by default, then name).
+    let visible = s.0.join("visible");
+    h.state_mut().explorer.toggle_expanded(visible.clone());
+    until(&mut h, Duration::from_secs(5), "the expanded row", |w| w.explorer.sizes.get(&visible).is_some_and(|f| f.children.len() == 3));
+    h.run_steps(2);
+    let nested = |h: &H| {
+        rows(h.state())
+            .into_iter()
+            .filter_map(|r| match r.kind {
+                RowKind::Folder { name, top: false, .. } => Some(name.to_string_lossy().into_owned()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(nested(&h), ["alpha", "zeta"], "by size, largest first");
+    let r = rows(h.state());
+    assert!(r.iter().any(|r| r.depth == 1 && matches!(r.kind, RowKind::Hidden { folders: 1, files: 0, .. })));
+    let parent = h.state().explorer.folder_sizes().unwrap().children[OsStr::new("visible")].total;
+    assert_eq!(r.iter().filter(|r| r.depth == 1).filter_map(|r| r.bytes()).sum::<u64>(), parent);
+    // By name, reversed: zeta first.
+    {
+        let ex = &mut h.state_mut().explorer;
+        ex.folder_sort = fractale::model::view::Sort { by: Some(fractale::model::view::SortBy::Name), reversed: true };
+        ex.rebuild();
+    }
+    h.run_steps(2);
+    assert_eq!(nested(&h), ["zeta", "alpha"]);
+}

@@ -58,28 +58,43 @@ impl Sort {
 
     /// Order of two entries; `size` gives a folder's total when known.
     pub fn compare(&self, a: &Entry, b: &Entry, size: &dyn Fn(&Entry) -> Option<u64>) -> Ordering {
+        if self.by == Some(SortBy::Type) {
+            let o = SortBy::Type.natural(type_key(a).cmp(&type_key(b)).then_with(|| a.key.cmp(&b.key)));
+            return if self.reversed { o.reverse() } else { o };
+        }
+        self.compare_keys(&Keys { key: &a.key, mtime: a.mtime, size: size(a) }, &Keys { key: &b.key, mtime: b.mtime, size: size(b) })
+    }
+
+    /// The same order for things that aren't listing entries (the
+    /// subfolders of an expanded row): by name, size or date.
+    pub fn compare_keys(&self, a: &Keys, b: &Keys) -> Ordering {
         let Some(by) = self.by else { return Ordering::Equal };
         let o = match by {
-            SortBy::Name => a.key.cmp(&b.key),
+            SortBy::Name | SortBy::Type => by.natural(a.key.cmp(b.key)),
             // Unknown sizes go last, in name order, so rows don't jump about
             // while sizes arrive.
-            SortBy::Size => match (size(a), size(b)) {
-                (Some(x), Some(y)) => SortBy::Size.natural(x.cmp(&y)).then_with(|| a.key.cmp(&b.key)),
+            SortBy::Size => match (a.size, b.size) {
+                (Some(x), Some(y)) => SortBy::Size.natural(x.cmp(&y)).then_with(|| a.key.cmp(b.key)),
                 (Some(_), None) => return Ordering::Less,
                 (None, Some(_)) => return Ordering::Greater,
-                (None, None) => return a.key.cmp(&b.key),
+                (None, None) => return a.key.cmp(b.key),
             },
-            SortBy::Date => SortBy::Date.natural(a.mtime.cmp(&b.mtime)).then_with(|| a.key.cmp(&b.key)),
-            SortBy::Type => type_key(a).cmp(&type_key(b)).then_with(|| a.key.cmp(&b.key)),
+            SortBy::Date => SortBy::Date.natural(a.mtime.cmp(&b.mtime)).then_with(|| a.key.cmp(b.key)),
         };
-        // Size and date already put their natural direction in.
-        let o = if matches!(by, SortBy::Size | SortBy::Date) { o } else { by.natural(o) };
         if self.reversed {
             o.reverse()
         } else {
             o
         }
     }
+}
+
+/// What `Sort::compare_keys` orders by.
+pub struct Keys<'a> {
+    /// `entry::natural_key` of the name.
+    pub key: &'a [u8],
+    pub mtime: i64,
+    pub size: Option<u64>,
 }
 
 fn type_key(e: &Entry) -> (super::entry::Category, Vec<u8>) {

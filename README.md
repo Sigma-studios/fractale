@@ -2,8 +2,10 @@
 
 A file explorer for everyday browsing that also shows what takes the space.
 Folders are on the left as rows with size bars, each bar showing the
-folder's share of the open folder. Everything else is on the right, as a
-grid of previews or a list. Sizes and search come from
+folder's share of the open folder. Below them, rows for the files directly
+in the folder and for hidden entries (while they aren't shown) make the bars
+add up to the total. Expanded rows follow the pane's sort. Everything else
+is on the right, as a grid of previews or a list. Sizes and search come from
 [répertoire](https://github.com/Sigma-studios/repertoire) when it runs, and
 from Fractale's own scanning when it doesn't.
 

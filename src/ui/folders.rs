@@ -4,8 +4,8 @@
 //! longest bar down. Ctrl and Shift clicks select.
 //!
 //! Each bar is the folder's share of the open folder's total, so the bars
-//! and the extra rows under them (files here, unreadable, mounted here)
-//! account for the whole folder.
+//! and the extra rows under them (files here, hidden, unreadable, mounted
+//! here) account for the whole folder.
 
 use super::icons;
 use super::theme::*;
@@ -14,7 +14,9 @@ use super::Window;
 use crate::model::entry::Category;
 use crate::model::listing::Count;
 use crate::model::sizes::ChildSize;
-use crate::model::view::{Pane, SortBy};
+use crate::model::entry::natural_key;
+use crate::model::view::{Keys, Pane, SortBy};
+use std::os::unix::ffi::OsStrExt;
 use eframe::egui::{self, pos2, vec2, Align2, Color32, CornerRadius, Rect, Sense, Stroke, StrokeKind};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -28,6 +30,9 @@ pub enum RowKind {
     Folder { path: PathBuf, name: OsString, top: bool, size: Option<ChildSize>, count: Option<Count>, mtime: i64, hidden: bool },
     /// The files directly in a folder (and its own entry).
     FilesHere(u64),
+    /// Hidden folders and files while they aren't shown, so the rows still
+    /// add up (dot-folders like `.cache` are often the biggest).
+    Hidden { bytes: u64, folders: usize, files: usize },
     /// Space the size source can't attribute, or subfolders it couldn't
     /// read.
     Unreadable { bytes: u64, folders: usize },
@@ -48,7 +53,7 @@ impl Row {
     pub fn bytes(&self) -> Option<u64> {
         match &self.kind {
             RowKind::Folder { size, .. } => size.as_ref().map(|s| s.total),
-            RowKind::FilesHere(b) => Some(*b),
+            RowKind::FilesHere(b) | RowKind::Hidden { bytes: b, .. } => Some(*b),
             RowKind::Unreadable { bytes, .. } => Some(*bytes),
             RowKind::Mount { .. } => None,
         }
@@ -82,9 +87,28 @@ pub fn rows(w: &Window) -> Vec<Row> {
         }
     }
     if let Some(s) = open {
-        if s.files_here > 0 {
-            out.push(Row { kind: RowKind::FilesHere(s.files_here), depth: 0, of });
+        // Hidden entries not shown: their own row, out of "files here".
+        let (mut hidden, mut hidden_files_bytes) = (Hidden::default(), 0);
+        if !ex.show_hidden {
+            for e in ex.listing.entries.iter().filter(|e| e.is_hidden()) {
+                if e.is_folder() {
+                    match s.children.get(&e.name).filter(|c| c.mount.is_none()) {
+                        Some(c) => hidden.add_folder(c.total),
+                        None if !s.children.contains_key(&e.name) => hidden.folders += 1,
+                        None => {}
+                    }
+                } else {
+                    hidden_files_bytes += e.bytes;
+                    hidden.files += 1;
+                }
+            }
+            hidden.bytes += hidden_files_bytes;
         }
+        let files_here = s.files_here.saturating_sub(hidden_files_bytes);
+        if files_here > 0 {
+            out.push(Row { kind: RowKind::FilesHere(files_here), depth: 0, of });
+        }
+        hidden.push(0, of, &mut out);
         let unreadable = s.children.values().filter(|c| c.unreadable).count();
         if s.hidden > 0 || unreadable > 0 {
             out.push(Row { kind: RowKind::Unreadable { bytes: s.hidden, folders: unreadable }, depth: 0, of });
@@ -94,14 +118,33 @@ pub fn rows(w: &Window) -> Vec<Row> {
     out
 }
 
-/// An expanded folder's subfolders, largest first, then its files.
+/// An expanded folder's subfolders, in the pane's order, then its files.
 fn nested(w: &Window, path: &Path, total: Option<u64>, depth: usize, out: &mut Vec<Row>) {
     let Some(s) = w.explorer.sizes.get(path) else { return };
     let hidden = |n: &OsString| n.to_string_lossy().starts_with('.');
-    let mut kids: Vec<(&OsString, &ChildSize)> = s.children.iter().filter(|(n, c)| c.mount.is_none() && (w.explorer.show_hidden || !hidden(n))).collect();
-    kids.sort_by(|a, b| b.1.total.cmp(&a.1.total).then_with(|| a.0.cmp(b.0)));
+    // The pane's sort applies here too (unsorted: by name, there's no
+    // listing order for these).
+    let mut kids: Vec<(Box<[u8]>, &OsString, &ChildSize)> = s
+        .children
+        .iter()
+        .filter(|(n, c)| c.mount.is_none() && (w.explorer.show_hidden || !hidden(n)))
+        .map(|(n, c)| (natural_key(n.as_bytes()), n, c))
+        .collect();
+    let sort = w.explorer.folder_sort;
+    kids.sort_by(|a, b| {
+        let (ka, kb) = (Keys { key: &a.0, mtime: a.2.mtime, size: Some(a.2.total) }, Keys { key: &b.0, mtime: b.2.mtime, size: Some(b.2.total) });
+        sort.compare_keys(&ka, &kb).then_with(|| a.0.cmp(&b.0))
+    });
+    // Hidden subfolders not shown. (Hidden files of a nested folder aren't
+    // listed, so they stay in its "files here".)
+    let mut hidden_row = Hidden::default();
+    if !w.explorer.show_hidden {
+        for (_, c) in s.children.iter().filter(|(n, c)| c.mount.is_none() && hidden(n)) {
+            hidden_row.add_folder(c.total);
+        }
+    }
     let of = total.or(Some(s.total)).filter(|&t| t > 0);
-    for (name, c) in kids {
+    for (_, name, c) in kids {
         let p = path.join(name);
         let expanded = w.explorer.is_expanded(&p);
         out.push(Row {
@@ -115,6 +158,28 @@ fn nested(w: &Window, path: &Path, total: Option<u64>, depth: usize, out: &mut V
     }
     if s.files_here > 0 {
         out.push(Row { kind: RowKind::FilesHere(s.files_here), depth, of });
+    }
+    hidden_row.push(depth, of, out);
+}
+
+/// Adds up the hidden entries of one folder.
+#[derive(Default)]
+struct Hidden {
+    bytes: u64,
+    folders: usize,
+    files: usize,
+}
+
+impl Hidden {
+    fn add_folder(&mut self, total: u64) {
+        self.bytes += total;
+        self.folders += 1;
+    }
+
+    fn push(self, depth: usize, of: Option<u64>, out: &mut Vec<Row>) {
+        if self.folders + self.files > 0 {
+            out.push(Row { kind: RowKind::Hidden { bytes: self.bytes, folders: self.folders, files: self.files }, depth, of });
+        }
     }
 }
 
@@ -291,6 +356,26 @@ fn row(ui: &mut egui::Ui, w: &mut Window, r: &Row) {
             p.galley(pos2(x + 18.0, inner.center().y - g.size().y / 2.0), g, MUTED);
             resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, "files here"));
             resp.on_hover_text("Files directly in this folder (and the folder's own entry)");
+        }
+        RowKind::Hidden { bytes: b, folders, files } => {
+            let x = inner.left() + 2.0 + indent + 20.0;
+            let right = bar(&p, inner, Some(*b), r.of, &bytes(*b as f64), true);
+            let mut what = Vec::new();
+            if *folders > 0 {
+                what.push(format!("{folders} folder{}", if *folders == 1 { "" } else { "s" }));
+            }
+            if *files > 0 {
+                what.push(format!("{files} file{}", if *files == 1 { "" } else { "s" }));
+            }
+            let label = format!("hidden ({})", what.join(", "));
+            let color = if resp.hovered() { TEXT_2 } else { MUTED };
+            let g = super::text::one_line(ui, &label, right - x - 28.0, font(13.0), color);
+            p.galley(pos2(x + 18.0, inner.center().y - g.size().y / 2.0), g, color);
+            resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "hidden"));
+            let resp = resp.on_hover_text("Hidden folders and files (names starting with a dot), not shown. Click (or Ctrl+H) to show them.").on_hover_cursor(egui::CursorIcon::PointingHand);
+            if resp.clicked() {
+                w.explorer.toggle_hidden();
+            }
         }
         RowKind::Unreadable { bytes: b, folders } => {
             let x = inner.left() + 22.0;
