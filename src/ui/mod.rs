@@ -3,6 +3,7 @@
 mod files;
 pub mod folders;
 pub mod icons;
+pub mod previews;
 mod search;
 mod status;
 mod text;
@@ -174,6 +175,7 @@ pub struct Window {
     /// "Biggest folders here" replaces the folder rows.
     pub show_top: bool,
     pub top_for: Option<PathBuf>,
+    pub previews: previews::Previews,
 }
 
 /// What a pane's scroll area looked like last frame, to scroll the cursor
@@ -193,12 +195,10 @@ impl Window {
     pub fn new(start: Start) -> Window {
         let ctx: Arc<OnceLock<egui::Context>> = Arc::new(OnceLock::new());
         let waker = ctx.clone();
+        let thumbnails = start.sources.thumbnails.clone();
+        let previews = previews::Previews::new(thumbnails, Arc::new(wake(&ctx)));
         let select = start.select.as_ref().and_then(|s| s.file_name()).map(|n| n.to_owned());
-        let explorer = Explorer::with_sources(start.folder, select, start.sources, move || {
-            if let Some(c) = waker.get() {
-                c.request_repaint();
-            }
-        });
+        let explorer = Explorer::with_sources(start.folder, select, start.sources, wake(&waker));
         Window {
             explorer,
             focus: Pane::Folders,
@@ -217,6 +217,7 @@ impl Window {
             search_edited: None,
             show_top: false,
             top_for: None,
+            previews,
         }
     }
 
@@ -258,6 +259,7 @@ impl Window {
             });
         }
         self.explorer.reveal_cursor = false;
+        self.previews.end_frame(ui.ctx());
         // Fractale moves its own cursor with the keyboard; egui's focus
         // (which Tab and arrows would move between buttons) is only for
         // text fields.
@@ -419,6 +421,16 @@ impl FrameStats {
             eprintln!("fractale: worst UI frame in the last second: {:.1?}", self.window_worst);
             self.window_worst = Duration::ZERO;
             self.window_start = Some(Instant::now());
+        }
+    }
+}
+
+/// Repaint from a worker thread, once the window exists.
+fn wake(ctx: &Arc<OnceLock<egui::Context>>) -> impl Fn() + Send + Sync + 'static {
+    let ctx = ctx.clone();
+    move || {
+        if let Some(c) = ctx.get() {
+            c.request_repaint();
         }
     }
 }

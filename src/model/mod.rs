@@ -11,4 +11,5 @@ pub mod platform;
 pub mod repertoire;
 pub mod search;
 pub mod sizes;
+pub mod thumbs;
 pub mod view;

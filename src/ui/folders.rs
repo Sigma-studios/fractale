@@ -180,6 +180,8 @@ pub fn show(ui: &mut egui::Ui, w: &mut Window) {
         area = area.vertical_scroll_offset(y);
     }
     let mut visible = Vec::new();
+    // show_rows spaces rows by the spacing in effect now; rows touch.
+    ui.spacing_mut().item_spacing.y = 0.0;
     let out = area.show_rows(ui, ROW_H, rows.len(), |ui, range| {
         ui.spacing_mut().item_spacing.y = 0.0;
         for r in range {

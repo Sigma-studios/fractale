@@ -45,6 +45,8 @@ pub fn show(ui: &mut egui::Ui, w: &mut Window) {
         }
         w.search_reveal = false;
     }
+    // show_rows spaces rows by the spacing in effect now; rows touch.
+    ui.spacing_mut().item_spacing.y = 0.0;
     let out = area.show_rows(ui, ROW_H, count, |ui, range| {
         ui.spacing_mut().item_spacing.y = 0.0;
         for i in range {
