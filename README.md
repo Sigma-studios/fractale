@@ -50,8 +50,13 @@ one.
   Orchestre songs (as a piano roll) and sound effects (as a waveform);
   Prisme documents (their embedded preview).
 - **Audio:** waveforms.
-- **Everything else on Linux:** any installed freedesktop thumbnailer
-  (`ffmpegthumbnailer` for videos, `evince` for PDFs, …).
+- **Documents:** PDFs (first page), SVGs, office files, HTML pages and
+  fonts.
+- **Videos:** a frame with `ffmpeg`.
+- **Everything else on Linux:** any installed freedesktop thumbnailer.
+
+Rest the pointer on a video, an audio file or an Orchestre file for a
+second and it plays (videos muted, in the tile); move away to stop.
 
 Previews go into the shared thumbnail cache (`~/.cache/thumbnails`), so
 other file managers use them too. Each format is a small `Previewer`

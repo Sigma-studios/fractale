@@ -175,15 +175,23 @@ fn tile(ui: &mut egui::Ui, w: &mut Window, i: usize, rect: Rect) -> bool {
     }
     let icon_rect = Rect::from_min_size(pos2(rect.center().x - w.tile / 2.0, rect.top() + 8.0), vec2(w.tile, w.tile));
     let ppp = ui.ctx().pixels_per_point();
-    let shown = preview_key(w, &e, ppp).and_then(|k| w.previews.get(&k, e.size));
-    match shown {
-        Some(s) => {
-            draw_preview(&p, icon_rect, s.texture.id(), s.size / ppp, &e);
-            if let Some(next) = s.next {
-                ui.ctx().request_repaint_after(next);
+    let path = w.explorer.folder.join(&e.name);
+    if resp.hovered() && !resp.dragged() && e.kind != Kind::Dir {
+        w.media.hover(&path, (w.tile * ppp) as u32);
+    }
+    // A playing video covers the preview.
+    if !w.media.draw_video(ui.ctx(), &p, &path, icon_rect) {
+        let shown = preview_key(w, &e, ppp).and_then(|k| w.previews.get(&k, e.size));
+        match shown {
+            Some(s) => {
+                draw_preview(&p, icon_rect, s.texture.id(), s.size / ppp, &e);
+                if let Some(next) = s.next {
+                    ui.ctx().request_repaint_after(next);
+                }
             }
+            None => draw_icon(&p, icon_rect, &e),
         }
-        None => draw_icon(&p, icon_rect, &e),
+        w.media.draw_sound(&p, &path, icon_rect);
     }
     // Name on two lines, cut in the middle if needed.
     let color = if e.is_hidden() { MUTED } else { TEXT };

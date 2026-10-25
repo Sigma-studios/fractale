@@ -153,7 +153,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("fractale-orch-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let sfx = dir.join("blip.orsfx");
-        std::fs::write(&sfx, serde_json::to_vec(&orchestre_core::sfx::Sound::default()).unwrap()).unwrap();
+        std::fs::write(&sfx, orchestre_core::sfx::file::sound_to_json(&orchestre_core::sfx::Sound::default()).unwrap()).unwrap();
         let r = Orchestre.render(&FileInfo::new(sfx.clone(), 10, 0), 128);
         // The default sound is either audible (a waveform) or silent (an
         // error, so the icon shows); it must not hang or panic.

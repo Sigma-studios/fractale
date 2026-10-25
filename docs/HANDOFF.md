@@ -11,9 +11,10 @@ yet.
 
 ## Packaging (Nix)
 
-- **Build:** plain `cargo build --release`, with no system libraries at
-  build time. Two git dependencies are pinned by revision and need
-  `cargoLock.outputHashes`:
+- **Build:** `cargo build --release`. The only system library needed at
+  build time is ALSA (`alsa-lib`, found with `pkg-config`), for sound in
+  hover previews (cpal). Two git dependencies are pinned by revision and
+  need `cargoLock.outputHashes`:
   - répertoire `fd764be` (`repertoire-core`, `repertoire-proto`; the
     daemon crate itself is dev-only);
   - Orchestre `9969a78` (`orchestre-core`, `orchestre-dsp`).
@@ -28,6 +29,10 @@ yet.
   types. Desktop entries and `mimeapps.list` choose apps, exactly as
   Dolphin does. Thumbnailers on `XDG_DATA_DIRS` add previews (see
   *Previews*).
+- **`ffmpeg` on the wrapper's `PATH`:** with it, videos get a still (when
+  no thumbnailer took them) and play on hover. Without it they show icons.
+- **Sound:** through ALSA, which NixOS routes to PipeWire
+  (`pipewire.alsa.enable`).
 - **Optional:** `xdg-utils`. `xdg-open` is the last resort when no app is
   known for a type.
 - **Files to install from `dist/`:**
@@ -86,7 +91,24 @@ Fractale share work. Failures go to `fail/fractale-<version>/`.
 | Orchestre `.orch` / `.orsfx` | piano roll in track colours / waveform from Orchestre's own synth |
 | Prisme `.prisme` | the embedded `PREV` image, otherwise the icon (see below) |
 | Audio (MP3, FLAC, Ogg Vorbis, WAV, AIFF, M4A/AAC/ALAC, CAF) | waveform (symphonia); files over 8 minutes are sampled |
+| SVG, SVGZ | rendered in-process (resvg) |
+| PDF | first page, rendered in-process (hayro, pure Rust); encrypted files get the icon |
+| Word, Excel, PowerPoint, LibreOffice | the preview picture the file carries (LibreOffice always writes one; Office only when asked); a Word file without one gets its first lines of text on a page |
+| HTML | title and text on a page, read without fetching or running anything |
+| Fonts (TTF, OTF, TTC) | "Aa", a sample line and the family name, drawn with the font |
 | Everything else (Linux) | every installed `*.thumbnailer`, matched by MIME type (name, then content) |
+| Videos nothing else took | one frame from 10% in, with `ffmpeg` |
+
+**Playing on hover:** resting the pointer on a video, an audio file or an
+Orchestre file for a second plays it, and moving away stops it.
+- Videos play muted inside the tile, from 10% in, looping.
+- Audio files play from the start through the default output, with a
+  progress bar.
+- Orchestre sound effects and songs are rendered live by Orchestre's own
+  synth.
+
+Measured on macOS: a video's first frame arrives 115 ms after it starts.
+Playback starts 1.0 s after the pointer stops.
 
 **Thumbnailer packages worth installing:**
 - `ffmpegthumbnailer` (videos)
@@ -134,6 +156,12 @@ plugins, not `.thumbnailer` files, and can't be used.
   - Apps whose `Exec` program isn't on `PATH` are hidden, as GLib does,
     so a Fractale started with a minimal `PATH` shows fewer apps.
   - No "set as default" yet.
+- **Previews of documents are approximations:** HTML and Word files
+  without a preview picture show their text, not their layout.
+  woff/woff2 fonts and encrypted PDFs get icons. The first SVG, document
+  page or font of a run waits about 1 s while the system fonts load.
+- **Hover playback:** videos are muted, and only grid tiles play (not the
+  list).
 - **Previews:** failures are remembered until the file changes. A
   thumbnailer installed later doesn't retry files a previewer already
   failed on (types nothing handled aren't recorded, so those do get
