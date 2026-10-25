@@ -174,3 +174,21 @@ pub fn status_badge(ui: &mut egui::Ui, color: egui::Color32, label: &str) -> egu
     ui.painter().galley(egui::pos2(r.left() + 14.0, r.center().y - g.size().y / 2.0), g, TEXT_2);
     resp
 }
+
+/// Ctrl/Shift for a click: as they were when the button was released (the
+/// event carries them), which is what the click means even if a key went
+/// up in the same frame.
+pub fn click_mods(ui: &egui::Ui) -> crate::model::view::Mods {
+    ui.input(|i| {
+        let m = i
+            .events
+            .iter()
+            .rev()
+            .find_map(|e| match e {
+                egui::Event::PointerButton { button: egui::PointerButton::Primary, pressed: false, modifiers, .. } => Some(*modifiers),
+                _ => None,
+            })
+            .unwrap_or(i.modifiers);
+        crate::model::view::Mods { toggle: m.command, range: m.shift }
+    })
+}

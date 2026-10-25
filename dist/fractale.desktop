@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Fractale
+GenericName=File Manager
+Comment=Browse files and see what takes the space
+Exec=fractale %U
+Icon=system-file-manager
+Terminal=false
+Categories=System;FileTools;FileManager;Core;
+Keywords=files;folders;disk;space;explorer;browser;
+MimeType=inode/directory;
+StartupWMClass=fractale

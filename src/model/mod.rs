@@ -3,12 +3,15 @@
 //! channels; [`explorer::Explorer`] gathers their results for the UI.
 
 pub mod complete;
+#[cfg(target_os = "linux")]
+pub mod dbus;
 pub mod entry;
 pub mod explorer;
 pub mod fallback;
 pub mod listing;
 pub mod ops;
 pub mod platform;
+pub mod remote;
 pub mod repertoire;
 pub mod search;
 pub mod sizes;

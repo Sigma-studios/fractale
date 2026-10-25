@@ -620,6 +620,21 @@ impl Explorer {
         self.lister.refresh();
     }
 
+    /// Go to a folder with some of its items selected (a second launch,
+    /// another app's "show in folder").
+    pub fn reveal(&mut self, show: super::remote::Show) {
+        if self.search.is_some() {
+            self.close_search();
+        }
+        if show.folder != self.folder {
+            self.open(show.folder);
+        }
+        if !show.select.is_empty() {
+            self.pending_select = Some((show.select, Instant::now()));
+            self.lister.refresh();
+        }
+    }
+
     /// Put the selection on the clipboard (Fractale's own).
     pub fn copy_selection(&mut self, cut: bool) {
         let paths = self.selected_paths();

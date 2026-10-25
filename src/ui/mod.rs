@@ -82,7 +82,7 @@ pub fn fixtures_dir() -> PathBuf {
     dir
 }
 
-pub fn run(start: Start) -> eframe::Result<()> {
+pub fn run(start: Start, remote: Option<crate::model::remote::Remote>) -> eframe::Result<()> {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("Fractale")
@@ -100,7 +100,11 @@ pub fn run(start: Start) -> eframe::Result<()> {
         options,
         Box::new(move |cc| {
             theme::install(&cc.egui_ctx);
-            Ok(Box::new(App { window: Window::new(start), screenshot: std::env::var("FRACTALE_SCREENSHOT").ok().map(|p| (p, false)) }))
+            let mut window = Window::new(start);
+            if let Some(r) = remote {
+                window.attach_remote(r);
+            }
+            Ok(Box::new(App { window, screenshot: std::env::var("FRACTALE_SCREENSHOT").ok().map(|p| (p, false)) }))
         }),
     )
 }
@@ -206,6 +210,8 @@ pub struct Window {
     pub top_for: Option<PathBuf>,
     pub previews: previews::Previews,
     pub ops: ops::OpsUi,
+    /// Requests from a second launch or another app.
+    remote: Option<crate::model::remote::Remote>,
 }
 
 /// What a pane's scroll area looked like last frame, to scroll the cursor
@@ -249,13 +255,36 @@ impl Window {
             top_for: None,
             previews,
             ops: ops::OpsUi::default(),
+            remote: None,
         }
+    }
+
+    /// Take requests from outside (see `model::remote`).
+    pub fn attach_remote(&mut self, remote: crate::model::remote::Remote) {
+        let _ = remote.wake.set(Arc::new(wake(&self.ctx)));
+        self.remote = Some(remote);
+    }
+
+    fn serve_remote(&mut self, ctx: &egui::Context) {
+        let Some(r) = &self.remote else { return };
+        let shows: Vec<_> = r.rx.try_iter().collect();
+        if shows.is_empty() {
+            return;
+        }
+        for s in shows {
+            self.explorer.reveal(s);
+        }
+        // Wayland doesn't let a window take focus by itself; the compositor
+        // may flash it instead.
+        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
         let started = Instant::now();
         let _ = self.ctx.set(ui.ctx().clone());
         self.explorer.poll();
+        self.serve_remote(ui.ctx());
         self.ops_frame();
         self.debounce_search(ui.ctx());
         if self.explorer.search.is_some() {
