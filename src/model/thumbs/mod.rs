@@ -30,12 +30,14 @@ pub struct FileInfo {
     pub ext: String,
     pub size: u64,
     pub mtime: i64,
+    /// The MIME type, found by whichever previewer needs it first.
+    pub mime: std::cell::OnceCell<String>,
 }
 
 impl FileInfo {
     pub fn new(path: PathBuf, size: u64, mtime: i64) -> FileInfo {
         let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
-        FileInfo { path, ext, size, mtime }
+        FileInfo { path, ext, size, mtime, mime: Default::default() }
     }
 }
 
