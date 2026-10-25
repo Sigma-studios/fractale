@@ -3,11 +3,15 @@
 
 use super::theme::*;
 use super::Window;
+use crate::model::sizes::{RepertoireState, SourceState};
 use eframe::egui::{self, Align, Layout, RichText};
 
 pub fn show(ui: &mut egui::Ui, w: &mut Window) {
     ui.horizontal(|ui| {
         let ex = &w.explorer;
+        let (color, label, tip) = source_badge(&ex.source);
+        super::widgets::status_badge(ui, color, &label).on_hover_text(tip);
+        ui.add_space(6.0);
         if let Some((total, used)) = ex.listing.space {
             ui.label(RichText::new(format!("{} of {} used", bytes(used as f64), bytes(total as f64))).color(MUTED));
         }
@@ -30,4 +34,22 @@ pub fn show(ui: &mut egui::Ui, w: &mut Window) {
             ui.label(RichText::new(text).color(TEXT_2));
         });
     });
+}
+
+/// Where the sizes come from, as a status dot and its label.
+fn source_badge(s: &SourceState) -> (egui::Color32, String, &'static str) {
+    let pct = |p: f32| (p * 100.0).round() as u32;
+    match s {
+        SourceState::Repertoire(RepertoireState::Live) => (GOOD, "live".into(), "Sizes follow every change as it happens (répertoire)"),
+        SourceState::Repertoire(RepertoireState::Static) => (MUTED, "static".into(), "répertoire measured this, but isn't watching for changes (not running as root?)"),
+        SourceState::Repertoire(RepertoireState::Reconciling { progress }) => {
+            (MUTED, format!("reconciling {}%", pct(*progress)), "répertoire is checking its saved sizes against the disk")
+        }
+        SourceState::Repertoire(RepertoireState::Scanning { progress }) => (MUTED, format!("scanning {}%", pct(*progress)), "répertoire is measuring this disk for the first time"),
+        SourceState::Repertoire(RepertoireState::Stale { progress }) => {
+            (WARNING, format!("stale {}%", pct(*progress)), "répertoire missed some changes and is measuring again; sizes may be off")
+        }
+        SourceState::OwnScan { busy: true } => (MUTED, "own scan…".into(), "répertoire isn't running: Fractale measures folders itself (not live below this folder)"),
+        SourceState::OwnScan { busy: false } => (MUTED, "own scan".into(), "répertoire isn't running: Fractale measures folders itself (not live below this folder)"),
+    }
 }

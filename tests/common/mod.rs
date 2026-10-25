@@ -61,9 +61,14 @@ impl Drop for Scratch {
 
 pub type H<'a> = egui_kittest::Harness<'a, Window>;
 
-/// A harness around a window opened on `folder`, with app launching off.
+/// A harness around a window opened on `folder`, with app launching off
+/// and no répertoire (a socket nobody listens on).
 pub fn window(folder: &Path) -> H<'static> {
-    let mut w = Window::new(Start { folder: folder.to_path_buf(), select: None });
+    window_with(folder, fractale::model::explorer::Sources { socket: "/nonexistent/fractale-test.sock".into(), retry: Duration::from_secs(3600) })
+}
+
+pub fn window_with(folder: &Path, sources: fractale::model::explorer::Sources) -> H<'static> {
+    let mut w = Window::new(Start { folder: folder.to_path_buf(), select: None, sources });
     w.launch = false;
     builder().build_ui_state(|ui, w: &mut Window| w.ui(ui), w)
 }

@@ -8,5 +8,7 @@ pub mod explorer;
 pub mod fallback;
 pub mod listing;
 pub mod platform;
+pub mod repertoire;
+pub mod search;
 pub mod sizes;
 pub mod view;

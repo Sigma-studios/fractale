@@ -3,6 +3,7 @@
 mod files;
 pub mod folders;
 pub mod icons;
+mod search;
 mod status;
 mod text;
 pub mod theme;
@@ -21,6 +22,14 @@ use theme::*;
 pub struct Start {
     pub folder: PathBuf,
     pub select: Option<PathBuf>,
+    /// Where sizes come from (répertoire's socket, retry period).
+    pub sources: crate::model::explorer::Sources,
+}
+
+impl Start {
+    pub fn at(folder: PathBuf) -> Start {
+        Start { folder, select: None, sources: Default::default() }
+    }
 }
 
 impl Start {
@@ -30,14 +39,14 @@ impl Start {
         if let Some(file) = select {
             let file = absolute(&file);
             let folder = file.parent().map(Path::to_path_buf).unwrap_or_else(|| "/".into());
-            return Start { folder, select: Some(file) };
+            return Start { folder, select: Some(file), sources: Default::default() };
         }
         let folder = if demo {
             fixtures_dir()
         } else {
             path.or_else(|| std::env::var_os("HOME").map(PathBuf::from)).unwrap_or_else(|| "/".into())
         };
-        Start { folder: absolute(&folder), select: None }
+        Start { folder: absolute(&folder), select: None, sources: Default::default() }
     }
 }
 
@@ -156,6 +165,15 @@ pub struct Window {
     drop_focus: bool,
     /// Top-level folder rows on screen last frame (sized first).
     pub visible_folders: Vec<std::ffi::OsString>,
+    /// Scroll the search cursor into view next frame.
+    pub search_reveal: bool,
+    /// The query last sent, and when the field last changed (searches
+    /// start 100 ms after typing stops).
+    search_sent: (String, bool),
+    pub search_edited: Option<Instant>,
+    /// "Biggest folders here" replaces the folder rows.
+    pub show_top: bool,
+    pub top_for: Option<PathBuf>,
 }
 
 /// What a pane's scroll area looked like last frame, to scroll the cursor
@@ -176,7 +194,7 @@ impl Window {
         let ctx: Arc<OnceLock<egui::Context>> = Arc::new(OnceLock::new());
         let waker = ctx.clone();
         let select = start.select.as_ref().and_then(|s| s.file_name()).map(|n| n.to_owned());
-        let explorer = Explorer::new(start.folder, select, move || {
+        let explorer = Explorer::with_sources(start.folder, select, start.sources, move || {
             if let Some(c) = waker.get() {
                 c.request_repaint();
             }
@@ -194,6 +212,11 @@ impl Window {
             stats: FrameStats::default(),
             drop_focus: false,
             visible_folders: Vec::new(),
+            search_reveal: false,
+            search_sent: (String::new(), false),
+            search_edited: None,
+            show_top: false,
+            top_for: None,
         }
     }
 
@@ -201,7 +224,17 @@ impl Window {
         let started = Instant::now();
         let _ = self.ctx.set(ui.ctx().clone());
         self.explorer.poll();
-        self.keys(ui);
+        self.debounce_search(ui.ctx());
+        if self.explorer.search.is_some() {
+            search::keys(ui, self);
+            if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.topbar.search.clear();
+                self.explorer.close_search();
+                self.search_sent = (String::new(), false);
+            }
+        } else {
+            self.keys(ui);
+        }
 
         egui::Panel::top("topbar").frame(egui::Frame::new().fill(BG).inner_margin(egui::Margin::symmetric(12, 8))).show(ui, |ui| {
             topbar::show(ui, self);
@@ -209,15 +242,21 @@ impl Window {
         egui::Panel::bottom("status").frame(egui::Frame::new().fill(BG).inner_margin(egui::Margin::symmetric(14, 6))).show(ui, |ui| {
             status::show(ui, self);
         });
-        egui::Panel::left("folders")
-            .resizable(true)
-            .default_size(460.0)
-            .min_size(260.0)
-            .frame(egui::Frame::new().fill(SURFACE).inner_margin(egui::Margin::symmetric(0, 8)))
-            .show(ui, |ui| folders::show(ui, self));
-        egui::CentralPanel::default().frame(egui::Frame::new().fill(BG).inner_margin(egui::Margin::symmetric(0, 8))).show(ui, |ui| {
-            files::show(ui, self);
-        });
+        if self.explorer.search.is_some() {
+            egui::CentralPanel::default().frame(egui::Frame::new().fill(BG).inner_margin(egui::Margin::symmetric(0, 8))).show(ui, |ui| {
+                search::show(ui, self);
+            });
+        } else {
+            egui::Panel::left("folders")
+                .resizable(true)
+                .default_size(460.0)
+                .min_size(260.0)
+                .frame(egui::Frame::new().fill(SURFACE).inner_margin(egui::Margin::symmetric(0, 8)))
+                .show(ui, |ui| folders::show(ui, self));
+            egui::CentralPanel::default().frame(egui::Frame::new().fill(BG).inner_margin(egui::Margin::symmetric(0, 8))).show(ui, |ui| {
+                files::show(ui, self);
+            });
+        }
         self.explorer.reveal_cursor = false;
         // Fractale moves its own cursor with the keyboard; egui's focus
         // (which Tab and arrows would move between buttons) is only for
@@ -238,6 +277,21 @@ impl Window {
             }
         }
         self.stats.record(started.elapsed());
+    }
+
+    /// Start the search 100 ms after the field stops changing.
+    fn debounce_search(&mut self, ctx: &egui::Context) {
+        let wanted = (self.topbar.search.clone(), self.topbar.everywhere);
+        if wanted == self.search_sent {
+            return;
+        }
+        let since = self.search_edited.map_or(Duration::MAX, |t| t.elapsed());
+        if since >= Duration::from_millis(100) {
+            self.explorer.set_search(&wanted.0, wanted.1);
+            self.search_sent = wanted;
+        } else {
+            ctx.request_repaint_after(Duration::from_millis(100) - since);
+        }
     }
 
     pub(crate) fn pane_index(pane: Pane) -> usize {

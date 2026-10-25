@@ -14,6 +14,8 @@ pub struct TopBar {
     pub path_text: Option<String>,
     focus_path: bool,
     pub search: String,
+    /// Search everywhere instead of under the open folder.
+    pub everywhere: bool,
     pub focus_search: bool,
     completer: Option<Completer>,
     /// Completion candidates for the current text.
@@ -260,6 +262,19 @@ pub fn expand_tilde(s: &str) -> String {
 }
 
 fn search_field(ui: &mut egui::Ui, w: &mut Window) {
+    // Scope toggle, right of the field.
+    let label = if w.topbar.everywhere { "everywhere" } else { "here" };
+    let g = ui.fonts_mut(|f| f.layout_no_wrap(label.to_string(), font(12.0), TEXT_2));
+    let (r, resp) = ui.allocate_exact_size(g.size() + vec2(14.0, 10.0), Sense::click());
+    if resp.hovered() {
+        ui.painter().rect_filled(r, CornerRadius::same(6), SURFACE_HOVER);
+    }
+    ui.painter().galley(r.center() - g.size() / 2.0, g, TEXT_2);
+    if resp.on_hover_text("Search under this folder, or everywhere").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+        w.topbar.everywhere = !w.topbar.everywhere;
+        w.search_edited = Some(std::time::Instant::now() - std::time::Duration::from_secs(1));
+    }
+    ui.add_space(4.0);
     let width = 280.0;
     let (rect, _) = ui.allocate_exact_size(vec2(width, 30.0), Sense::hover());
     let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(Align::Center)));
@@ -278,5 +293,8 @@ fn search_field(ui: &mut egui::Ui, w: &mut Window) {
     if w.topbar.focus_search {
         resp.request_focus();
         w.topbar.focus_search = false;
+    }
+    if resp.changed() {
+        w.search_edited = Some(std::time::Instant::now());
     }
 }
