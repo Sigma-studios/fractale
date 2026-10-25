@@ -12,6 +12,14 @@ pub fn open_default(path: &Path) {
     spawn_detached(std::process::Command::new(program).arg(path));
 }
 
+/// The system clipboard's text, for pasting into text fields.
+pub fn clipboard_text() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    return arboard::Clipboard::new().ok()?.get_text().ok();
+    #[cfg(not(target_os = "macos"))]
+    None
+}
+
 /// Start a program without waiting for it or keeping its output.
 pub fn spawn_detached(cmd: &mut std::process::Command) {
     use std::process::Stdio;

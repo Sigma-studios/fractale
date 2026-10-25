@@ -28,9 +28,19 @@ lz4_flex = "0.11"
 ron = "0.10"
 serde = { version = "1", features = ["derive"] }
 symphonia = { version = "0.6", features = ["all"] }
+# The freedesktop trash (and macOS's). `chrono` writes DeletionDate, which
+# the spec requires and KDE shows.
+trash = { version = "5.2", default-features = false, features = ["chrono"] }
 # Orchestre's song model and synth, for song and sound effect previews.
 orchestre-core = { git = "https://github.com/Sigma-studios/orchestre", rev = "9969a78e79d9b446de1bc563182834ae9b9afe45" }
 orchestre-dsp = { git = "https://github.com/Sigma-studios/orchestre", rev = "9969a78e79d9b446de1bc563182834ae9b9afe45" }
+
+# macOS (development only): the text clipboard through egui and arboard.
+# On Linux Fractale has its own Wayland data device (files and text), and
+# eframe's clipboard would be a second one on the same seat.
+[target.'cfg(target_os = "macos")'.dependencies]
+eframe = { version = "0.37", default-features = false, features = ["clipboard"] }
+arboard = { version = "3.7", default-features = false }
 
 [dev-dependencies]
 # The daemon itself, run in a helper process by the integration tests.

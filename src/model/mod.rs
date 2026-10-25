@@ -7,6 +7,7 @@ pub mod entry;
 pub mod explorer;
 pub mod fallback;
 pub mod listing;
+pub mod ops;
 pub mod platform;
 pub mod repertoire;
 pub mod search;
