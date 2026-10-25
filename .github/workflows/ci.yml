@@ -30,6 +30,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # cpal (sound for hover previews) builds against ALSA; ffmpeg for
+      # the video preview tests.
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev pkg-config ffmpeg
       - run: rustup update stable && rustup default stable && rustup component add clippy
       - run: cargo build --all-targets
       - run: cargo clippy --all-targets

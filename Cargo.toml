@@ -32,6 +32,13 @@ lz4_flex = "0.11"
 ron = "0.10"
 serde = { version = "1", features = ["derive"] }
 symphonia = { version = "0.6", features = ["all"] }
+# SVG and PDF previews, in-process and pure Rust.
+resvg = { version = "0.49", default-features = false, features = ["text", "system-fonts", "raster-images"] }
+hayro = "0.8"
+# Office documents are zip files (their embedded preview, or their text).
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
+# Sound for hover previews of audio files.
+cpal = "0.18"
 # The freedesktop trash (and macOS's). `chrono` writes DeletionDate, which
 # the spec requires and KDE shows.
 trash = { version = "5.2", default-features = false, features = ["chrono"] }

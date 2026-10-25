@@ -208,7 +208,10 @@ pub fn make(req: &Request, previewers: &[Box<dyn Previewer>], root: &Path) -> Re
     // The first that succeeds (a system thumbnailer may know a format
     // variant the built-in decoder doesn't).
     for p in accepting {
-        if let Ok(r) = p.render(&info, key.bucket.pixels()) {
+        // A previewer that panics on a hostile file mustn't take the
+        // worker down: that file just gets its icon.
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| p.render(&info, key.bucket.pixels())));
+        if let Ok(Ok(r)) = r {
             let _ = cache::write(root, key.bucket, &key.path, key.mtime, req.size, r.still());
             return Ready::Done(key, r);
         }

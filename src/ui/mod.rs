@@ -3,6 +3,7 @@
 mod files;
 pub mod folders;
 pub mod icons;
+pub mod media;
 pub mod ops;
 pub mod previews;
 mod search;
@@ -226,6 +227,8 @@ pub struct Window {
     pub paste_request: Option<PathBuf>,
     /// Folder rows on screen this frame (drop targets for other apps).
     pub drop_rows: Vec<(egui::Rect, PathBuf)>,
+    /// Hover-to-play previews.
+    pub media: media::Media,
 }
 
 /// What a pane's scroll area looked like last frame, to scroll the cursor
@@ -248,6 +251,7 @@ impl Window {
         let thumbnails = start.sources.thumbnails.clone();
         let previews = previews::Previews::new(thumbnails, Arc::new(wake(&ctx)));
         let opener = crate::model::opener::Opener::spawn(Arc::new(wake(&ctx)));
+        let media = media::Media::new(Arc::new(wake(&ctx)));
         let select = start.select.as_ref().and_then(|s| s.file_name()).map(|n| n.to_owned());
         let explorer = Explorer::with_sources(start.folder, select, start.sources, wake(&waker));
         Window {
@@ -276,6 +280,7 @@ impl Window {
             system_drag: None,
             paste_request: None,
             drop_rows: Vec::new(),
+            media,
         }
     }
 
@@ -360,6 +365,7 @@ impl Window {
         }
         self.explorer.reveal_cursor = false;
         self.previews.end_frame(ui.ctx());
+        self.media.end_frame(ui.ctx());
         ops::dialogs(ui.ctx(), self);
         // Fractale moves its own cursor with the keyboard; egui's focus
         // (which Tab and arrows would move between buttons) is only for
