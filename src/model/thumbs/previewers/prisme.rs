@@ -41,7 +41,7 @@ pub fn read_preview(bytes: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     let u64_at = |b: &[u8], i: usize| Some(u64::from_le_bytes(b.get(i..i + 8)?.try_into().ok()?));
     let count = u32_at(bytes, 12)? as usize;
     let toc_end = count.checked_mul(TOC_ENTRY_LEN)?.checked_add(HEADER_LEN).filter(|&e| e <= bytes.len())?;
-    let chunk = bytes[HEADER_LEN..toc_end].chunks_exact(TOC_ENTRY_LEN).find(|e| &e[..4] == b"PREV")?;
+    let chunk = bytes[HEADER_LEN..toc_end].as_chunks::<TOC_ENTRY_LEN>().0.iter().find(|e| &e[..4] == b"PREV")?;
     let (off, len) = (u64_at(chunk, 4)?, u64_at(chunk, 12)?);
     let end = off.checked_add(len).filter(|&end| end <= bytes.len() as u64 && off >= toc_end as u64)?;
     let p = &bytes[off as usize..end as usize];

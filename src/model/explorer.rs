@@ -8,6 +8,7 @@ use super::repertoire::{self as rep, Repertoire};
 use super::search::{Hit, Query, Searcher};
 use super::sizes::{self, FolderSizes, SizeMsg, SourceState};
 use super::listing::{Count, Lister, Listing, Msg};
+use super::ops::{self, Jobs, Quick, QuickDone};
 use super::view::{History, Mods, Pane, Selection, Sort, SortBy, TypeAhead};
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ffi::{OsStr, OsString};
@@ -73,6 +74,24 @@ pub struct Explorer {
     /// The pointer is over the folder pane: don't reorder rows under it.
     pub freeze_folders: bool,
     resort_pending: bool,
+    pub jobs: Jobs,
+    /// Files copied or cut inside Fractale.
+    pub clipboard: Option<Clip>,
+    /// Select these once the listing has them (pasted, created, renamed);
+    /// given up after a few seconds.
+    pending_select: Option<(Vec<OsString>, Instant)>,
+    /// Start renaming this name once it's listed (a new folder).
+    pub rename_request: Option<OsString>,
+    /// A message for the status bar: what failed, or what happened.
+    pub notice: Option<(String, Instant)>,
+    /// Answers to `Quick::Count`, for the delete confirmation.
+    pub counted: Option<(Vec<PathBuf>, u64, u64)>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Clip {
+    pub paths: Vec<PathBuf>,
+    pub cut: bool,
 }
 
 impl Explorer {
@@ -105,7 +124,13 @@ impl Explorer {
             sizer: Fallback::spawn(wake.clone()),
             searcher: Searcher::spawn(sources.socket.clone(), wake.clone()),
             search: None,
-            daemon: Repertoire::spawn(sources.socket, sources.retry, wake),
+            daemon: Repertoire::spawn(sources.socket, sources.retry, wake.clone()),
+            jobs: Jobs::spawn(wake),
+            clipboard: None,
+            pending_select: None,
+            rename_request: None,
+            notice: None,
+            counted: None,
             daemon_up: false,
             not_indexed: HashSet::new(),
             decided: false,
@@ -133,7 +158,7 @@ impl Explorer {
 
     /// Pick up results from the services. True if anything changed.
     pub fn poll(&mut self) -> bool {
-        let mut changed = false;
+        let mut changed = self.poll_ops();
         while let Ok(msg) = self.lister.rx.try_recv() {
             match msg {
                 Msg::Listed(l) if l.generation == self.generation => {
@@ -475,6 +500,24 @@ impl Explorer {
         self.files = files;
         let names: std::collections::HashSet<&OsStr> = self.folders.iter().chain(&self.files).map(|&i| entries[i].name.as_os_str()).collect();
         self.selection.retain(|n| names.contains(n));
+        if let Some((names, since)) = self.pending_select.take() {
+            let found: Vec<OsString> = names.iter().filter(|n| self.find(n).is_some()).cloned().collect();
+            if !found.is_empty() {
+                self.selection.clear();
+                for n in &found {
+                    let pane = self.find(n).map(Pane::of).unwrap_or(Pane::Files);
+                    if self.selection.cursor.is_none() {
+                        self.selection.only(pane, n);
+                    } else {
+                        self.selection.items.insert(n.clone());
+                    }
+                }
+                self.reveal_cursor = true;
+            }
+            if found.len() < names.len() && since.elapsed() < Duration::from_secs(3) {
+                self.pending_select = Some((names, since));
+            }
+        }
         if let Some(name) = self.pending_cursor.take() {
             if let Some(e) = self.find(&name) {
                 let pane = Pane::of(e);
@@ -532,6 +575,96 @@ impl Explorer {
         } else {
             Activate::File(path)
         }
+    }
+
+    /// Results of file operations: select what was made, report failures.
+    fn poll_ops(&mut self) -> bool {
+        let mut changed = false;
+        while let Ok(m) = self.jobs.rx.try_recv() {
+            changed = true;
+            match m {
+                ops::Msg::Job(id) => {
+                    let Some(v) = self.jobs.view(id) else { continue };
+                    let Some(o) = &v.outcome else { continue };
+                    let here: Vec<OsString> = o.created.iter().filter(|p| p.parent() == Some(&self.folder)).filter_map(|p| p.file_name()).map(OsStr::to_owned).collect();
+                    if !here.is_empty() {
+                        self.select_when_listed(here);
+                    }
+                    if !o.cancelled && o.skipped == 0 {
+                        self.jobs.dismiss(id);
+                    }
+                }
+                ops::Msg::Quick(d) => match d {
+                    QuickDone::Renamed { to, .. } => {
+                        if to.parent() == Some(&self.folder) {
+                            self.select_when_listed(to.file_name().into_iter().map(OsStr::to_owned).collect());
+                        }
+                    }
+                    QuickDone::Created(p) => {
+                        if let Some(n) = p.file_name() {
+                            self.select_when_listed(vec![n.to_owned()]);
+                            self.rename_request = Some(n.to_owned());
+                        }
+                    }
+                    QuickDone::Counted { paths, items, bytes } => self.counted = Some((paths, items, bytes)),
+                    QuickDone::Failed { what, error } => self.notice = Some((format!("{what} failed: {error}"), Instant::now())),
+                },
+            }
+        }
+        changed
+    }
+
+    fn select_when_listed(&mut self, names: Vec<OsString>) {
+        self.pending_select = Some((names, Instant::now()));
+        // Don't wait for the watcher to notice.
+        self.lister.refresh();
+    }
+
+    /// Put the selection on the clipboard (Fractale's own).
+    pub fn copy_selection(&mut self, cut: bool) {
+        let paths = self.selected_paths();
+        if !paths.is_empty() {
+            self.clipboard = Some(Clip { paths, cut });
+        }
+    }
+
+    /// Paste the clipboard into `dest`: cut files move (and leave the
+    /// clipboard), copied ones copy.
+    pub fn paste(&mut self, dest: PathBuf) -> Option<ops::JobId> {
+        let clip = self.clipboard.clone()?;
+        if clip.cut {
+            self.clipboard = None;
+        }
+        let kind = if clip.cut { ops::Kind::Move } else { ops::Kind::Copy };
+        Some(self.jobs.submit(ops::Spec { kind, sources: clip.paths, dest: Some(dest) }))
+    }
+
+    pub fn transfer(&mut self, kind: ops::Kind, sources: Vec<PathBuf>, dest: PathBuf) -> ops::JobId {
+        self.jobs.submit(ops::Spec { kind, sources, dest: Some(dest) })
+    }
+
+    pub fn trash(&mut self, paths: Vec<PathBuf>) -> Option<ops::JobId> {
+        (!paths.is_empty()).then(|| self.jobs.submit(ops::Spec { kind: ops::Kind::Trash, sources: paths, dest: None }))
+    }
+
+    pub fn delete(&mut self, paths: Vec<PathBuf>) -> Option<ops::JobId> {
+        (!paths.is_empty()).then(|| self.jobs.submit(ops::Spec { kind: ops::Kind::Delete, sources: paths, dest: None }))
+    }
+
+    pub fn rename(&mut self, path: PathBuf, name: OsString) {
+        if path.file_name() != Some(&name) {
+            self.jobs.quick(Quick::Rename { path, name });
+        }
+    }
+
+    pub fn new_folder(&mut self) {
+        self.jobs.quick(Quick::NewFolder { parent: self.folder.clone() });
+    }
+
+    /// Ask for item count and size (answer in `counted`).
+    pub fn count(&mut self, paths: Vec<PathBuf>) {
+        self.counted = None;
+        self.jobs.quick(Quick::Count { paths });
     }
 
     /// The selected entries' paths, in display order (folders first).

@@ -246,7 +246,7 @@ fn decode(rows: &[String]) -> Result<Pic, String> {
         if row.len() != chars {
             return Err(format!("row {y} is {} characters long, row 0 is {chars}", row.len()));
         }
-        for (x, pair) in row.as_bytes().chunks_exact(2).enumerate() {
+        for (x, pair) in row.as_bytes().as_chunks::<2>().0.iter().enumerate() {
             pic.px[y * pic.w as usize + x] = match (pair[0], pair[1]) {
                 (b'.', b'.') => 0,
                 (a, b) => match (hex(a), hex(b)) {

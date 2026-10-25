@@ -205,7 +205,7 @@ pub fn show(ui: &mut egui::Ui, w: &mut Window) {
 
 fn row(ui: &mut egui::Ui, w: &mut Window, r: &Row) {
     let width = ui.available_width();
-    let (rect, resp) = ui.allocate_exact_size(vec2(width, ROW_H), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, ROW_H), Sense::click_and_drag());
     let inner = rect.shrink2(vec2(6.0, 1.0));
     let indent = r.depth as f32 * INDENT;
     let p = ui.painter().clone();
@@ -215,7 +215,12 @@ fn row(ui: &mut egui::Ui, w: &mut Window, r: &Row) {
             let selected = *top && w.explorer.selection.is_selected(name);
             resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, selected, &label));
             let cursor = *top && w.explorer.selection.is_cursor(Pane::Folders, name) && w.focus == Pane::Folders;
-            if selected {
+            // Files dragged here move (or copy) into this folder.
+            let dev = if *top { w.explorer.find(name).map_or(w.explorer.listing.dev, |e| e.dev) } else { w.explorer.listing.dev };
+            if super::ops::drop_target(ui, w, &resp, path, dev) {
+                p.rect_filled(inner, CornerRadius::same(5), SIZE.gamma_multiply(0.35));
+                p.rect_stroke(inner, CornerRadius::same(5), Stroke::new(1.5, SIZE), StrokeKind::Inside);
+            } else if selected {
                 p.rect_filled(inner, CornerRadius::same(5), SIZE.gamma_multiply(0.22));
             } else if resp.hovered() {
                 p.rect_filled(inner, CornerRadius::same(5), SURFACE_HOVER);
@@ -245,10 +250,17 @@ fn row(ui: &mut egui::Ui, w: &mut Window, r: &Row) {
             let name_right = bar(&p, inner, size.as_ref().map(|s| s.total), r.of, &detail, unreadable);
             let name_x = glyph.right() + 8.0;
             let color = if *hidden { MUTED } else { TEXT };
-            let g = super::text::one_line(ui, &label, (name_right - 10.0 - name_x).max(20.0), font(13.0), color);
-            p.galley(pos2(name_x, inner.center().y - g.size().y / 2.0), g, color);
+            let field = Rect::from_min_max(pos2(name_x - 4.0, inner.top() + 1.0), pos2(name_right - 10.0, inner.bottom() - 1.0));
+            if !(*top && super::ops::rename_field(ui, w, name, field)) {
+                let g = super::text::one_line(ui, &label, (name_right - 10.0 - name_x).max(20.0), font(13.0), color);
+                p.galley(pos2(name_x, inner.center().y - g.size().y / 2.0), g, color);
+            }
 
             let resp = resp.on_hover_ui(|ui| folder_tip(ui, &label, size.as_ref(), *count, r.of, *mtime));
+            if *top {
+                super::ops::drag_source(ui, w, &resp, Pane::Folders, name);
+                resp.context_menu(|ui| super::ops::item_menu(ui, w));
+            }
             if expandable && chev_resp.clicked() {
                 w.explorer.toggle_expanded(path.clone());
                 return;

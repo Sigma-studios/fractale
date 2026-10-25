@@ -3,6 +3,7 @@
 mod files;
 pub mod folders;
 pub mod icons;
+pub mod ops;
 pub mod previews;
 mod search;
 mod status;
@@ -89,6 +90,9 @@ pub fn run(start: Start) -> eframe::Result<()> {
             .with_inner_size([1400.0, 900.0])
             .with_min_inner_size([720.0, 480.0]),
         renderer: eframe::Renderer::Glow,
+        // Ctrl+C/X/V are Fractale's (files); text fields get them back in
+        // `raw_input_hook`.
+        clipboard_shortcuts: false,
         ..Default::default()
     };
     eframe::run_native(
@@ -136,6 +140,31 @@ impl App {
 }
 
 impl eframe::App for App {
+    /// With egui's clipboard shortcuts off, a focused text field gets
+    /// copy, cut and paste from here.
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        if !ctx.egui_wants_keyboard_input() {
+            return;
+        }
+        for ev in raw.events.iter_mut() {
+            if let egui::Event::Key { key, pressed: true, modifiers, .. } = ev {
+                if !modifiers.command_only() {
+                    continue;
+                }
+                match key {
+                    egui::Key::C => *ev = egui::Event::Copy,
+                    egui::Key::X => *ev = egui::Event::Cut,
+                    egui::Key::V => {
+                        if let Some(t) = crate::model::platform::clipboard_text() {
+                            *ev = egui::Event::Paste(t);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
+
     fn clear_color(&self, _: &egui::Visuals) -> [f32; 4] {
         BG.to_normalized_gamma_f32()
     }
@@ -176,6 +205,7 @@ pub struct Window {
     pub show_top: bool,
     pub top_for: Option<PathBuf>,
     pub previews: previews::Previews,
+    pub ops: ops::OpsUi,
 }
 
 /// What a pane's scroll area looked like last frame, to scroll the cursor
@@ -218,6 +248,7 @@ impl Window {
             show_top: false,
             top_for: None,
             previews,
+            ops: ops::OpsUi::default(),
         }
     }
 
@@ -225,6 +256,7 @@ impl Window {
         let started = Instant::now();
         let _ = self.ctx.set(ui.ctx().clone());
         self.explorer.poll();
+        self.ops_frame();
         self.debounce_search(ui.ctx());
         if self.explorer.search.is_some() {
             search::keys(ui, self);
@@ -241,6 +273,7 @@ impl Window {
             topbar::show(ui, self);
         });
         egui::Panel::bottom("status").frame(egui::Frame::new().fill(BG).inner_margin(egui::Margin::symmetric(14, 6))).show(ui, |ui| {
+            ops::jobs_strip(ui, self);
             status::show(ui, self);
         });
         if self.explorer.search.is_some() {
@@ -260,6 +293,7 @@ impl Window {
         }
         self.explorer.reveal_cursor = false;
         self.previews.end_frame(ui.ctx());
+        ops::dialogs(ui.ctx(), self);
         // Fractale moves its own cursor with the keyboard; egui's focus
         // (which Tab and arrows would move between buttons) is only for
         // text fields.
@@ -343,6 +377,9 @@ impl Window {
                         _ => {}
                     }
                     if editing {
+                        continue;
+                    }
+                    if self.ops_key(ui.ctx(), key, m) {
                         continue;
                     }
                     let pane = self.focus;

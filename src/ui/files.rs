@@ -94,6 +94,7 @@ fn grid(ui: &mut egui::Ui, w: &mut Window) {
     if let Some(y) = scroll_target(&mut w.scroll[idx], cursor, w.explorer.reveal_cursor) {
         area = area.vertical_scroll_offset(y);
     }
+    background_menu(ui, w);
     let mut clicked_tile = false;
     // show_rows spaces rows by the spacing in effect now; rows touch.
     ui.spacing_mut().item_spacing.y = 0.0;
@@ -132,6 +133,13 @@ fn grid(ui: &mut egui::Ui, w: &mut Window) {
     s.viewport = out.inner_rect.height();
 }
 
+/// Right click on empty space. Added before the items, so they're on top
+/// of it.
+fn background_menu(ui: &mut egui::Ui, w: &mut Window) {
+    let bg = ui.interact(ui.available_rect_before_wrap(), ui.scope_id().with("files-background"), Sense::click());
+    bg.context_menu(|ui| super::ops::background_menu(ui, w));
+}
+
 /// A click on empty space clears the selection.
 fn background_click(ui: &egui::Ui, w: &mut Window, area: Rect, on_item: bool) {
     let clicked = ui.input(|i| i.pointer.primary_clicked() && i.pointer.interact_pos().is_some_and(|p| area.contains(p)));
@@ -147,7 +155,7 @@ fn background_click(ui: &egui::Ui, w: &mut Window, area: Rect, on_item: bool) {
 /// One tile; true if it was clicked.
 fn tile(ui: &mut egui::Ui, w: &mut Window, i: usize, rect: Rect) -> bool {
     let id = ui.scope_id().with(("tile", i, w.explorer.view_version));
-    let resp = ui.interact(rect.shrink(3.0), id, Sense::click());
+    let resp = ui.interact(rect.shrink(3.0), id, Sense::click_and_drag());
     let e = w.explorer.entry(i).clone();
     let sel = w.explorer.selection.is_selected(&e.name);
     resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, sel, e.name_lossy()));
@@ -181,9 +189,12 @@ fn tile(ui: &mut egui::Ui, w: &mut Window, i: usize, rect: Rect) -> bool {
     let g = w.names.layout(ui, &e.name_lossy(), text_w, 2, font(12.5), color);
     let name_top = icon_rect.bottom() + 6.0;
     let name_h = g.size().y;
-    // Centred galleys are laid out around x = 0.
-    p.galley(pos2(rect.center().x, name_top), g, color);
-    p.text(pos2(rect.center().x, name_top + name_h + 1.0), Align2::CENTER_TOP, size_label(&e), font(11.5), MUTED);
+    let field = Rect::from_min_size(pos2(rect.left() + 4.0, name_top - 2.0), vec2(rect.width() - 8.0, 22.0));
+    if !super::ops::rename_field(ui, w, &e.name, field) {
+        // Centred galleys are laid out around x = 0.
+        p.galley(pos2(rect.center().x, name_top), g, color);
+        p.text(pos2(rect.center().x, name_top + name_h + 1.0), Align2::CENTER_TOP, size_label(&e), font(11.5), MUTED);
+    }
     let resp = hover(resp, &e);
     interactions(ui, w, &resp, &e.name);
     resp.clicked() || resp.double_clicked() || resp.secondary_clicked()
@@ -258,6 +269,8 @@ fn hover(resp: egui::Response, e: &Entry) -> egui::Response {
 }
 
 fn interactions(ui: &egui::Ui, w: &mut Window, resp: &egui::Response, name: &std::ffi::OsStr) {
+    super::ops::drag_source(ui, w, resp, Pane::Files, name);
+    resp.context_menu(|ui| super::ops::item_menu(ui, w));
     let mods = ui.input(|i| Mods { toggle: i.modifiers.command, range: i.modifiers.shift });
     if resp.clicked() {
         w.focus = Pane::Files;
@@ -315,6 +328,7 @@ fn list(ui: &mut egui::Ui, w: &mut Window) {
     if let Some(y) = scroll_target(&mut w.scroll[idx], cursor, w.explorer.reveal_cursor) {
         area = area.vertical_scroll_offset(y);
     }
+    background_menu(ui, w);
     let mut clicked_row = false;
     // show_rows spaces rows by the spacing in effect now; rows touch.
     ui.spacing_mut().item_spacing.y = 0.0;
@@ -322,7 +336,7 @@ fn list(ui: &mut egui::Ui, w: &mut Window) {
         ui.spacing_mut().item_spacing.y = 0.0;
         for k in range {
             let i = w.explorer.files[k];
-            let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), LIST_ROW_H), Sense::click());
+            let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), LIST_ROW_H), Sense::click_and_drag());
             let e = w.explorer.entry(i).clone();
             let sel = w.explorer.selection.is_selected(&e.name);
             resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, sel, e.name_lossy()));
@@ -342,8 +356,11 @@ fn list(ui: &mut egui::Ui, w: &mut Window) {
             draw_icon(&p, icon, &e);
             let mut x = inner.left() + 40.0;
             let color = if e.is_hidden() { MUTED } else { TEXT };
-            let g = super::text::one_line(ui, &e.name_lossy(), name_w - 12.0, font(13.0), color);
-            p.galley(pos2(x, inner.center().y - g.size().y / 2.0), g, color);
+            let field = Rect::from_min_size(pos2(x - 4.0, inner.top()), vec2(name_w - 8.0, inner.height()));
+            if !super::ops::rename_field(ui, w, &e.name, field) {
+                let g = super::text::one_line(ui, &e.name_lossy(), name_w - 12.0, font(13.0), color);
+                p.galley(pos2(x, inner.center().y - g.size().y / 2.0), g, color);
+            }
             x += name_w;
             p.text(pos2(x + size_w - 10.0, inner.center().y), Align2::RIGHT_CENTER, size_label(&e), font(12.0), TEXT_2);
             x += size_w;
