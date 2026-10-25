@@ -1,6 +1,6 @@
 //! Rest the pointer on a video, an audio file or an Orchestre file for a
 //! moment (200 ms, or `FRACTALE_HOVER_DELAY_MS`) and it plays (see `model::playback`); move away and it stops.
-//! Videos play in the tile, muted; sounds show their progress under it.
+//! Videos play in the tile, with their sound; sounds show their progress under it.
 
 use super::theme::*;
 use crate::model::playback::{Kind, Playback};
