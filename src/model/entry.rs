@@ -161,7 +161,7 @@ impl Category {
         let ext = ext.as_ref().and_then(|e| e.to_str()).unwrap_or("");
         match ext {
             "png" | "jpg" | "jpeg" | "gif" | "webp" | "bmp" | "tif" | "tiff" | "avif" | "heic" | "heif" | "svg" | "ico" | "xcf" | "psd"
-            | "kra" | "ora" | "tga" | "dds" | "exr" | "hdr" | "qoi" | "jxl" | "raw" | "cr2" | "nef" | "arw" | "dng" | "pxl" | "prisme" => {
+            | "kra" | "ora" | "tga" | "dds" | "exr" | "hdr" | "qoi" | "jxl" | "raw" | "cr2" | "nef" | "arw" | "dng" | "pxl" | "prisme" | "aseprite" | "ase" => {
                 Category::Image
             }
             "mp4" | "mkv" | "webm" | "mov" | "avi" | "m4v" | "wmv" | "flv" | "mpg" | "mpeg" | "ogv" | "m2ts" | "mts" => Category::Video,

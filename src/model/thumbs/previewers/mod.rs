@@ -1,5 +1,6 @@
 //! The previewers, in the order they're tried.
 
+pub mod aseprite;
 pub mod audio;
 pub mod font;
 pub mod gif;
@@ -26,6 +27,7 @@ pub fn registry() -> Vec<Box<dyn Previewer>> {
         Box::new(images::Images),
         Box::new(xcf::Xcf),
         Box::new(pixelle::Pixelle),
+        Box::new(aseprite::Aseprite),
         Box::new(orchestre::Orchestre),
         Box::new(prisme::Prisme),
         Box::new(audio::Waveform),
@@ -55,14 +57,11 @@ pub fn shrink(img: image::RgbaImage, max: u32) -> image::RgbaImage {
     image::imageops::resize(&img, w, h, image::imageops::FilterType::Triangle)
 }
 
-/// Scale pixel art up with nearest-neighbour so it stays crisp, or down to
-/// fit.
+/// Pixel art at its own size (the grid enlarges it by whole factors with
+/// sharp pixels; a pre-enlarged image would blur when shown a little
+/// smaller), or shrunk with nearest-neighbour when larger than `max`.
 pub fn pixel_art(img: image::RgbaImage, max: u32) -> image::RgbaImage {
     let (w, h) = (img.width().max(1), img.height().max(1));
-    let k = (max / w.max(h)).max(1);
-    if k > 1 {
-        return image::imageops::resize(&img, w * k, h * k, image::imageops::FilterType::Nearest);
-    }
     if w > max || h > max {
         let (fw, fh) = super::fit(w, h, max);
         return image::imageops::resize(&img, fw, fh, image::imageops::FilterType::Nearest);

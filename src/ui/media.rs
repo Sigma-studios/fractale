@@ -57,8 +57,8 @@ impl Media {
         if let Some(f) = play.frame() {
             let img = egui::ColorImage::from_rgba_unmultiplied([f.width as usize, f.height as usize], &f.rgba);
             match &mut self.texture {
-                Some(t) if t.size() == [f.width as usize, f.height as usize] => t.set(img, egui::TextureOptions::LINEAR),
-                _ => self.texture = Some(ctx.load_texture("hover-video", img, egui::TextureOptions::LINEAR)),
+                Some(t) if t.size() == [f.width as usize, f.height as usize] => t.set(img, super::previews::UPSCALE),
+                _ => self.texture = Some(ctx.load_texture("hover-video", img, super::previews::UPSCALE)),
             }
         }
         let Some(t) = &self.texture else { return false };

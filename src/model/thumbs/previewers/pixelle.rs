@@ -55,20 +55,31 @@ impl Previewer for Pixelle {
             return Err("too large for a Pixelle file".into());
         }
         let bytes = std::fs::read(&f.path).map_err(|e| e.to_string())?;
-        render(&f.path, &bytes, max).map(Rendered::Still)
+        render_native(&f.path, &bytes, max).map(Rendered::Still)
     }
 }
 
 pub fn render(path: &Path, bytes: &[u8], max: u32) -> Result<RgbaImage, String> {
+    Ok(scale(&art(path, bytes, max)?, max.min(MAX_SIDE)))
+}
+
+/// The art at its own size (shrunk only if larger than `max`): the grid
+/// enlarges it with sharp pixels itself.
+pub fn render_native(path: &Path, bytes: &[u8], max: u32) -> Result<RgbaImage, String> {
+    let art = art(path, bytes, max)?;
+    let (w, h) = art.dimensions();
+    Ok(if w.max(h) > max { scale(&art, max.min(MAX_SIDE)) } else { art })
+}
+
+fn art(path: &Path, bytes: &[u8], max: u32) -> Result<RgbaImage, String> {
     if max == 0 {
         return Err("max is 0".into());
     }
-    let art = match parse(bytes)? {
+    Ok(match parse(bytes)? {
         File::Project(m) => swatches(&sections(&m))?,
         File::Sprite(s) => to_rgba(&sprite(&s)?, &project_palette(path)),
         File::Terrain(t) => to_rgba(&terrain(&t)?, &project_palette(path)),
-    };
-    Ok(scale(&art, max.min(MAX_SIDE)))
+    })
 }
 
 // --- The format ----------------------------------------------------------------------------------

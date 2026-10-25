@@ -184,7 +184,7 @@ fn tile(ui: &mut egui::Ui, w: &mut Window, i: usize, rect: Rect) -> bool {
         let shown = preview_key(w, &e, ppp).and_then(|k| w.previews.get(&k, e.size));
         match shown {
             Some(s) => {
-                draw_preview(&p, icon_rect, s.texture.id(), s.size / ppp, &e);
+                draw_preview(&p, icon_rect, s.texture.id(), s.size, ppp, &e);
                 if let Some(next) = s.next {
                     ui.ctx().request_repaint_after(next);
                 }
@@ -221,14 +221,13 @@ fn preview_key(w: &Window, e: &Entry, ppp: f32) -> Option<crate::model::thumbs::
     (file && e.size > 0).then(|| Previews::key(&w.explorer.folder.join(&e.name), e.mtime, w.tile * ppp))
 }
 
-/// A preview fitted into the icon square, at most at its own size (small
-/// images aren't blown up blurry; pixel art is pre-scaled and may grow),
-/// sitting on the square's bottom edge like icons do.
-fn draw_preview(p: &egui::Painter, rect: Rect, tex: egui::TextureId, natural: egui::Vec2, e: &Entry) {
-    let pixel_art = e.extension().is_some_and(|x| x.eq_ignore_ascii_case("pxl"));
-    let k = (rect.width() / natural.x).min(rect.height() / natural.y);
-    let k = if pixel_art { k } else { k.min(1.0) };
-    let size = natural * k;
+/// A preview fitted into the icon square, sitting on its bottom edge like
+/// icons do. Small pictures grow by whole factors of screen pixels, so they
+/// stay sharp (no blurred pixels); big ones shrink to fit.
+fn draw_preview(p: &egui::Painter, rect: Rect, tex: egui::TextureId, texels: egui::Vec2, ppp: f32, e: &Entry) {
+    let k = (rect.width() * ppp / texels.x).min(rect.height() * ppp / texels.y);
+    let k = if k >= 1.0 { k.floor() } else { k };
+    let size = texels * k / ppp;
     let r = Rect::from_min_size(pos2(rect.center().x - size.x / 2.0, rect.bottom() - size.y), size);
     p.image(tex, r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Color32::WHITE);
     if e.kind == Kind::Symlink {
