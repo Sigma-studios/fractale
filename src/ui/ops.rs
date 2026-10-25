@@ -17,6 +17,17 @@ pub struct OpsUi {
     pub confirm_delete: Option<Vec<PathBuf>>,
     /// "Apply to all" in the conflict dialog.
     apply_all: bool,
+    /// "Open with": asked for, then the apps that can.
+    pub open_with: Option<OpenWith>,
+    /// A program the user tried to open: run it?
+    pub ask_run: Option<PathBuf>,
+}
+
+pub struct OpenWith {
+    pub files: Vec<PathBuf>,
+    pub apps: Option<Vec<crate::model::opener::AppChoice>>,
+    pub mime: String,
+    pub command: String,
 }
 
 pub struct Rename {
@@ -121,6 +132,11 @@ pub fn item_menu(ui: &mut egui::Ui, w: &mut Window) {
         if let Some((p, n)) = w.explorer.selection.cursor.clone() {
             w.activate(p, &n);
         }
+        ui.close();
+    }
+    if !folder && ui.button("Open with…").clicked() {
+        w.ops.open_with = Some(OpenWith { files: paths.clone(), apps: None, mime: String::new(), command: String::new() });
+        w.opener.send(crate::model::opener::Req::AppsFor(paths.clone()));
         ui.close();
     }
     ui.separator();
@@ -280,6 +296,83 @@ pub fn drop_target(ui: &egui::Ui, w: &mut Window, resp: &egui::Response, folder:
 
 /// The modal dialogs: delete confirmation, then a job's question.
 pub fn dialogs(ctx: &egui::Context, w: &mut Window) {
+    use crate::model::opener::Req;
+    if let Some(path) = w.ops.ask_run.clone() {
+        let mut close = None;
+        egui::Modal::new(egui::Id::unique("ask-run")).show(ctx, |ui| {
+            ui.set_width(380.0);
+            ui.label(RichText::new(format!("“{}” is a program. Run it?", path.file_name().unwrap_or_default().to_string_lossy())).strong().color(TEXT));
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
+                    close = Some(false);
+                }
+                if ui.button("Run").clicked() {
+                    close = Some(true);
+                }
+            });
+        });
+        if let Some(run) = close {
+            w.ops.ask_run = None;
+            if run {
+                w.opener.send(Req::Run(path));
+            }
+        }
+        return;
+    }
+    if w.ops.open_with.is_some() {
+        let mut close = false;
+        let mut send = None;
+        egui::Modal::new(egui::Id::unique("open-with")).show(ctx, |ui| {
+            ui.set_width(400.0);
+            let ow = w.ops.open_with.as_mut().unwrap();
+            let what = if ow.files.len() == 1 { format!("“{}”", ow.files[0].file_name().unwrap_or_default().to_string_lossy()) } else { format!("{} files", ow.files.len()) };
+            ui.label(RichText::new(format!("Open {what} with")).strong().color(TEXT));
+            if !ow.mime.is_empty() {
+                ui.label(RichText::new(&ow.mime).color(MUTED).size(11.5));
+            }
+            ui.add_space(6.0);
+            match &ow.apps {
+                None => {
+                    ui.label(RichText::new("Looking…").color(MUTED));
+                }
+                Some(apps) if apps.is_empty() => {
+                    ui.label(RichText::new("No installed app says it opens this.").color(MUTED));
+                }
+                Some(apps) => {
+                    egui::ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                        for a in apps {
+                            let label = if a.default { format!("{}  (default)", a.name) } else { a.name.clone() };
+                            if ui.add(egui::Button::new(label).min_size(vec2(ui.available_width(), 24.0))).clicked() {
+                                send = Some(Req::With { app: a.id.clone(), files: ow.files.clone() });
+                            }
+                        }
+                    });
+                }
+            }
+            ui.add_space(8.0);
+            ui.label(RichText::new("Other command").color(TEXT_2));
+            let field = ui.add(egui::TextEdit::singleline(&mut ow.command).hint_text("e.g. gimp, or code --new-window").desired_width(f32::INFINITY));
+            let entered = field.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
+                    close = true;
+                }
+                if (ui.add_enabled(!ow.command.trim().is_empty(), egui::Button::new("Run command")).clicked() || entered) && !ow.command.trim().is_empty() {
+                    send = Some(Req::Custom { line: ow.command.clone(), files: ow.files.clone() });
+                }
+            });
+        });
+        if let Some(r) = send {
+            w.opener.send(r);
+            close = true;
+        }
+        if close {
+            w.ops.open_with = None;
+        }
+        return;
+    }
     if let Some(paths) = w.ops.confirm_delete.clone() {
         let counted = w.explorer.counted.as_ref().filter(|c| c.0 == paths).map(|c| (c.1, c.2));
         let mut close = None;
