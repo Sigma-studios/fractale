@@ -104,6 +104,9 @@ fn results_stream_and_navigation_cancels() {
         std::thread::sleep(Duration::from_millis(1));
     };
     assert!(matches!(first_child, SizeMsg::Child { .. }));
+    // A fast machine may have finished already; then there's nothing to
+    // cancel (the check below needs the walk to be running at the switch).
+    let finished = std::iter::from_fn(|| fb.rx.try_recv().ok()).any(|m| matches!(m, SizeMsg::Done { ref folder, complete: true, .. } if *folder == s.0));
     // Leaving for another folder stops the walk and starts on it.
     let other = s.0.join("other");
     let t = Instant::now();
@@ -113,7 +116,11 @@ fn results_stream_and_navigation_cancels() {
     assert!(t.elapsed() < Duration::from_secs(2), "the old walk kept the worker busy");
     assert_eq!(f.total, du(&other));
     let stale = msgs.iter().filter(|m| matches!(m, SizeMsg::Done { folder, complete: true, .. } if *folder == s.0)).count();
-    assert_eq!(stale, 0, "the cancelled folder was never reported complete");
+    if finished {
+        eprintln!("the walk finished before the switch: cancel not checked");
+    } else {
+        assert_eq!(stale, 0, "the cancelled folder was never reported complete");
+    }
 }
 
 #[test]
