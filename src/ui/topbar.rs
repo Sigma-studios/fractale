@@ -5,7 +5,7 @@ use super::icons::{self, Arrow};
 use super::theme::*;
 use super::Window;
 use crate::model::complete::Completer;
-use eframe::egui::{self, vec2, Align, CornerRadius, Layout, Rect, RichText, Sense, Stroke, StrokeKind};
+use eframe::egui::{self, pos2, vec2, Align, CornerRadius, Layout, Rect, RichText, Sense, Stroke, StrokeKind};
 use std::path::{Component, Path, PathBuf};
 
 #[derive(Default)]
@@ -262,32 +262,58 @@ pub fn expand_tilde(s: &str) -> String {
 }
 
 fn search_field(ui: &mut egui::Ui, w: &mut Window) {
-    // Scope toggle, right of the field.
+    const W: f32 = 320.0;
+    const H: f32 = 30.0;
+    let (rect, _) = ui.allocate_exact_size(vec2(W, H), Sense::hover());
+    let p = ui.painter().clone();
+    p.rect_filled(rect, CornerRadius::same(8), SURFACE);
+    let focused = ui.memory(|m| m.has_focus(egui::Id::unique("search-field")));
+    p.rect_stroke(rect, CornerRadius::same(8), Stroke::new(1.0, if focused { SIZE.gamma_multiply(0.7) } else { BORDER }), StrokeKind::Inside);
+    // Magnifier, inset from the edge.
+    let glyph = Rect::from_center_size(pos2(rect.left() + 17.0, rect.center().y), vec2(15.0, 15.0));
+    icons::magnifier(&p, glyph, MUTED);
+
+    // Scope chip at the right end: under this folder, or everywhere.
     let label = if w.topbar.everywhere { "everywhere" } else { "here" };
-    let g = ui.fonts_mut(|f| f.layout_no_wrap(label.to_string(), font(12.0), TEXT_2));
-    let (r, resp) = ui.allocate_exact_size(g.size() + vec2(14.0, 10.0), Sense::click());
-    if resp.hovered() {
-        ui.painter().rect_filled(r, CornerRadius::same(6), SURFACE_HOVER);
-    }
-    ui.painter().galley(r.center() - g.size() / 2.0, g, TEXT_2);
-    if resp.on_hover_text("Search under this folder, or everywhere").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+    let g = ui.fonts_mut(|f| f.layout_no_wrap(label.to_string(), font(11.5), TEXT_2));
+    let chip = Rect::from_min_size(pos2(rect.right() - 6.0 - g.size().x - 14.0, rect.center().y - 10.0), vec2(g.size().x + 14.0, 20.0));
+    let chip_resp = ui.interact(chip, ui.scope_id().with("search-scope"), Sense::click());
+    p.rect_filled(chip, CornerRadius::same(10), if chip_resp.hovered() { RAISED } else { SURFACE_HOVER });
+    p.galley(chip.center() - g.size() / 2.0, g, TEXT_2);
+    chip_resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, label));
+    if chip_resp.on_hover_text("Search under this folder, or everywhere").on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
         w.topbar.everywhere = !w.topbar.everywhere;
         w.search_edited = Some(std::time::Instant::now() - std::time::Duration::from_secs(1));
     }
-    ui.add_space(4.0);
-    let width = 280.0;
-    let (rect, _) = ui.allocate_exact_size(vec2(width, 30.0), Sense::hover());
-    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(Align::Center)));
-    let p = child.painter().clone();
-    p.rect_filled(rect, CornerRadius::same(7), SURFACE);
-    p.rect_stroke(rect, CornerRadius::same(7), Stroke::new(1.0, BORDER), StrokeKind::Inside);
-    let (glyph, _) = child.allocate_exact_size(vec2(28.0, 28.0), Sense::hover());
-    icons::magnifier(&p, glyph, MUTED);
-    let resp = child.add(
+
+    // Clear, when there's text.
+    let mut right = chip.left() - 4.0;
+    if !w.topbar.search.is_empty() {
+        let clear = Rect::from_center_size(pos2(right - 10.0, rect.center().y), vec2(18.0, 18.0));
+        let resp = ui.interact(clear, ui.scope_id().with("search-clear"), Sense::click());
+        let c = if resp.hovered() { TEXT } else { MUTED };
+        let k = 4.0;
+        p.line_segment([clear.center() + vec2(-k, -k), clear.center() + vec2(k, k)], Stroke::new(1.5, c));
+        p.line_segment([clear.center() + vec2(-k, k), clear.center() + vec2(k, -k)], Stroke::new(1.5, c));
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, "clear search"));
+        if resp.on_hover_text("Clear").clicked() {
+            w.topbar.search.clear();
+            w.search_edited = Some(std::time::Instant::now());
+        }
+        right = clear.left() - 2.0;
+    }
+
+    // The text, vertically centred in the field.
+    let text = Rect::from_min_max(pos2(glyph.right() + 8.0, rect.top()), pos2(right, rect.bottom()));
+    let resp = ui.put(
+        text,
         egui::TextEdit::singleline(&mut w.topbar.search)
             .frame(egui::Frame::NONE)
-            .hint_text(RichText::new("Search here…").color(FAINT))
-            .desired_width(width - 40.0)
+            .margin(egui::Margin::ZERO)
+            .align(egui::Align2::LEFT_CENTER)
+            .font(font(13.0))
+            .hint_text(RichText::new(if w.topbar.everywhere { "Search everywhere…" } else { "Search here…" }).color(FAINT).font(font(13.0)))
+            .desired_width(text.width())
             .id(egui::Id::unique("search-field")),
     );
     if w.topbar.focus_search {

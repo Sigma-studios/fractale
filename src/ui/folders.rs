@@ -22,8 +22,13 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 pub const ROW_H: f32 = 30.0;
-/// The peek button at the right end of folder rows.
+/// The peek button, just left of a folder row's bar.
 const EYE_W: f32 = 26.0;
+/// The size text right of the bar.
+const SIZE_TEXT_W: f32 = 74.0;
+/// Bars give way to names down to this.
+const MIN_BAR: f32 = 56.0;
+const MAX_BAR: f32 = 240.0;
 const INDENT: f32 = 18.0;
 
 #[derive(Clone, Debug)]
@@ -230,6 +235,7 @@ pub fn show(ui: &mut egui::Ui, w: &mut Window) {
         return;
     }
     let rows = rows(w);
+    w.bar_w = bar_width(ui, &rows, ui.available_width() - 12.0);
     if rows.is_empty() {
         if let Some(m) = Message::for_pane(&w.explorer, n, "No subfolders") {
             m.show(ui);
@@ -320,12 +326,13 @@ fn row(ui: &mut egui::Ui, w: &mut Window, r: &Row) {
                 Some(s) => bytes(s.total as f64),
                 None => String::new(),
             };
-            let name_right = bar(&p, inner, size.as_ref().map(|s| s.total), r.of, &detail, unreadable);
+            let name_right = bar(&p, inner, w.bar_w, size.as_ref().map(|s| s.total), r.of, &detail, unreadable);
             let name_x = glyph.right() + 8.0;
             let color = if *hidden { MUTED } else { TEXT };
             // The eye: this folder's files in the files pane, without
             // opening it. Shown on hover, and while it's the one peeked.
-            let eye = Rect::from_center_size(pos2(inner.right() - EYE_W / 2.0 - 2.0, inner.center().y), vec2(EYE_W, 22.0));
+            let eye = Rect::from_center_size(pos2(name_right - 4.0 - EYE_W / 2.0, inner.center().y), vec2(EYE_W, 22.0));
+            let name_right = eye.left() + 4.0;
             let eye_resp = ui.interact(eye, ui.scope_id().with(("peek", path)), Sense::click());
             if peeked || resp.contains_pointer() || eye_resp.hovered() {
                 let c = if peeked { SIZE } else if eye_resp.hovered() { TEXT } else { MUTED };
@@ -371,7 +378,7 @@ fn row(ui: &mut egui::Ui, w: &mut Window, r: &Row) {
         }
         RowKind::FilesHere(b) => {
             let x = inner.left() + 2.0 + indent + 20.0;
-            let right = bar(&p, inner, Some(*b), r.of, &bytes(*b as f64), true);
+            let right = bar(&p, inner, w.bar_w, Some(*b), r.of, &bytes(*b as f64), true);
             let g = super::text::one_line(ui, "files here", right - x - 28.0, font(13.0), MUTED);
             p.galley(pos2(x + 18.0, inner.center().y - g.size().y / 2.0), g, MUTED);
             resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, "files here"));
@@ -379,7 +386,7 @@ fn row(ui: &mut egui::Ui, w: &mut Window, r: &Row) {
         }
         RowKind::Hidden { bytes: b, folders, files } => {
             let x = inner.left() + 2.0 + indent + 20.0;
-            let right = bar(&p, inner, Some(*b), r.of, &bytes(*b as f64), true);
+            let right = bar(&p, inner, w.bar_w, Some(*b), r.of, &bytes(*b as f64), true);
             let mut what = Vec::new();
             if *folders > 0 {
                 what.push(format!("{folders} folder{}", if *folders == 1 { "" } else { "s" }));
@@ -408,7 +415,7 @@ fn row(ui: &mut egui::Ui, w: &mut Window, r: &Row) {
                     "Folders that can't be read, so their contents aren't counted. With répertoire running as root, their size shows here.",
                 )
             };
-            let right = bar(&p, inner, (*b > 0).then_some(*b), r.of, &detail, true);
+            let right = bar(&p, inner, w.bar_w, (*b > 0).then_some(*b), r.of, &detail, true);
             let g = super::text::one_line(ui, &label, right - x - 28.0, font(13.0), MUTED);
             p.galley(pos2(x + 18.0, inner.center().y - g.size().y / 2.0), g, MUTED);
             resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Label, true, "unreadable"));
@@ -440,12 +447,25 @@ fn row(ui: &mut egui::Ui, w: &mut Window, r: &Row) {
 /// The size bar and the number at the right of a row; returns the x where
 /// the name must end. No bar while either number is unknown: a faint
 /// placeholder instead, so rows don't change shape when sizes arrive.
-fn bar(p: &egui::Painter, inner: Rect, part: Option<u64>, of: Option<u64>, detail: &str, muted: bool) -> f32 {
-    let text_w = 74.0;
-    let bar_w = (inner.width() * 0.3).clamp(60.0, 240.0);
-    // Room at the right end for a folder row's eye (every row, so bars
-    // line up).
-    let text_right = inner.right() - EYE_W - 4.0;
+/// One bar width for every row this frame: up to 30% of the pane, but
+/// narrower (down to `MIN_BAR`) rather than cutting the longest name.
+fn bar_width(ui: &egui::Ui, rows: &[Row], inner_w: f32) -> f32 {
+    let preferred = (inner_w * 0.3).clamp(MIN_BAR, MAX_BAR);
+    let mut need = 0f32;
+    for r in rows.iter().take(5000) {
+        if let RowKind::Folder { name, .. } = &r.kind {
+            let text = ui.fonts_mut(|f| f.layout_no_wrap(name.to_string_lossy().into_owned(), font(13.0), TEXT)).size().x;
+            // Indent, chevron, glyph, then the name, a gap and the eye.
+            need = need.max(48.0 + r.depth as f32 * INDENT + text + 6.0 + EYE_W + 4.0);
+        }
+    }
+    let room = inner_w - need - SIZE_TEXT_W - 8.0;
+    room.clamp(MIN_BAR, preferred)
+}
+
+fn bar(p: &egui::Painter, inner: Rect, bar_w: f32, part: Option<u64>, of: Option<u64>, detail: &str, muted: bool) -> f32 {
+    let text_w = SIZE_TEXT_W;
+    let text_right = inner.right() - 8.0;
     p.text(pos2(text_right, inner.center().y), Align2::RIGHT_CENTER, detail, font(12.0), if muted { MUTED } else { TEXT_2 });
     let bar_rect = Rect::from_min_size(pos2(text_right - text_w - bar_w, inner.center().y - 4.0), vec2(bar_w, 8.0));
     p.rect_filled(bar_rect, CornerRadius::same(3), TRACK);
@@ -511,7 +531,7 @@ fn top_list(ui: &mut egui::Ui, w: &mut Window, total: Option<u64>) {
             }
             let glyph = Rect::from_center_size(pos2(inner.left() + 18.0, inner.center().y), vec2(16.0, 14.0));
             icons::folder(&p, glyph, icons::tint(Category::Folder));
-            let right = bar(&p, inner, Some(bytes_), total, &bytes(bytes_ as f64), false);
+            let right = bar(&p, inner, w.bar_w, Some(bytes_), total, &bytes(bytes_ as f64), false);
             let x = glyph.right() + 8.0;
             // The end of the path is what matters.
             let g = super::text::one_line(ui, &rel, right - 10.0 - x, font(13.0), TEXT);

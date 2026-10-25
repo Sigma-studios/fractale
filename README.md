@@ -91,6 +91,9 @@ other file managers use them too. Each format is a small `Previewer`
 In search results, Enter opens a result and Alt+Enter shows it in its
 folder.
 
+Dragging from empty space in the files pane draws a rectangle that selects
+what it touches (Ctrl or Shift adds to the selection).
+
 Dragging files onto a folder row moves them there, or copies them if the
 folder is on another disk. Shift forces a move, Ctrl a copy.
 

@@ -98,3 +98,13 @@ pub fn listed(h: &mut H) {
 pub fn thumbnails() -> PathBuf {
     Path::new(env!("CARGO_TARGET_TMPDIR")).join("thumbnails")
 }
+
+/// Click a folder row on its name (its middle may hold the peek button).
+pub fn click_row(h: &mut H, label: &str) {
+    use egui_kittest::kittest::Queryable;
+    let r = h.get_by_label(label).rect();
+    let at = egui::pos2(r.left() + 60.0, r.center().y);
+    h.event(egui::Event::PointerMoved(at));
+    h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: egui::Modifiers::NONE });
+    h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: egui::Modifiers::NONE });
+}

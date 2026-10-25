@@ -76,7 +76,7 @@ fn copy_paste_and_conflicts() {
     h.key_press_modifiers(Modifiers::COMMAND, Key::C);
     h.run_steps(1);
     assert_eq!(h.state().explorer.clipboard.as_ref().unwrap().paths.len(), 2);
-    h.get_by_label("dest").click();
+    click_row(&mut h, "dest");
     wait_for(&mut h, "dest", |w| w.explorer.is_current() && w.explorer.folder.ends_with("dest"));
     h.key_press_modifiers(Modifiers::COMMAND, Key::V);
     // a.txt is there already: the dialog asks.
@@ -174,10 +174,84 @@ fn pictures() {
     h.run_steps(2);
     h.get_by_label("a.txt").click();
     h.key_press_modifiers(Modifiers::COMMAND, Key::C);
-    h.get_by_label("dest").click();
+    click_row(&mut h, "dest");
     wait_for(&mut h, "dest", |w| w.explorer.is_current() && w.explorer.folder.ends_with("dest"));
     h.key_press_modifiers(Modifiers::COMMAND, Key::V);
     wait_for(&mut h, "the conflict dialog", |w| w.explorer.jobs.views().iter().any(|j| j.question.is_some()));
     h.run_steps(3);
     h.render().unwrap().save(out.join("conflict.png")).unwrap();
+
+    // A selection rectangle mid-drag, and the search field with text.
+    let s2 = Scratch::new("ui-shots2");
+    for n in ["a", "b", "c", "d", "e", "f"] {
+        s2.file(&format!("{n}.txt"), 10);
+    }
+    let mut h = window(&s2.0);
+    listed(&mut h);
+    let (c, e, f) = (h.get_by_label("c.txt").rect(), h.get_by_label("e.txt").rect(), h.get_by_label("f.txt").rect());
+    let from = egui::pos2(e.center().x, f.center().y);
+    h.event(egui::Event::PointerMoved(from));
+    h.run_steps(1);
+    h.event(egui::Event::PointerButton { pos: from, button: egui::PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+    for k in 1..=6 {
+        h.event(egui::Event::PointerMoved(from + (c.center() - from) * (k as f32 / 6.0)));
+        h.run_steps(1);
+    }
+    h.render().unwrap().save(out.join("band.png")).unwrap();
+    h.event(egui::Event::PointerButton { pos: c.center(), button: egui::PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+    h.run_steps(1);
+    h.key_press_modifiers(Modifiers::COMMAND, Key::F);
+    h.run_steps(2);
+    h.event(egui::Event::Text("report".into()));
+    h.run_steps(3);
+    h.render().unwrap().save(out.join("search.png")).unwrap();
+}
+
+/// Dragging from empty space draws a rectangle that selects what it
+/// touches; Ctrl adds to the selection.
+#[test]
+fn drag_a_rectangle_to_select() {
+    let s = Scratch::new("ui-band");
+    for n in ["a", "b", "c", "d", "e", "f"] {
+        s.file(&format!("{n}.txt"), 10);
+    }
+    let mut h = window(&s.0);
+    listed(&mut h);
+    let (a, c, e, f) = (h.get_by_label("a.txt").rect(), h.get_by_label("c.txt").rect(), h.get_by_label("e.txt").rect(), h.get_by_label("f.txt").rect());
+    assert!(f.top() > a.bottom(), "f starts a second row");
+    // From the empty space right of f (under e) up to the middle of c:
+    // c, d and e.
+    let from = egui::pos2(e.center().x, f.center().y);
+    let to = egui::pos2(c.center().x, c.center().y);
+    let drag = |h: &mut H, from: egui::Pos2, to: egui::Pos2, m: Modifiers| {
+        h.event(egui::Event::PointerMoved(from));
+        h.run_steps(1);
+        h.event(egui::Event::PointerButton { pos: from, button: egui::PointerButton::Primary, pressed: true, modifiers: m });
+        h.run_steps(1);
+        for k in 1..=8 {
+            h.event(egui::Event::PointerMoved(from + (to - from) * (k as f32 / 8.0)));
+            h.run_steps(1);
+        }
+        h.event(egui::Event::PointerButton { pos: to, button: egui::PointerButton::Primary, pressed: false, modifiers: m });
+        h.run_steps(2);
+    };
+    drag(&mut h, from, to, Modifiers::NONE);
+    let sel = |h: &H| {
+        let mut v: Vec<String> = h.state().explorer.selection.items.iter().map(|n| n.to_string_lossy().into_owned()).collect();
+        v.sort();
+        v
+    };
+    assert_eq!(sel(&h), ["c.txt", "d.txt", "e.txt"]);
+    assert!(h.state().band.is_none(), "the rectangle is gone");
+    // With Ctrl, f joins.
+    let from_f = egui::pos2(f.right() + 6.0, f.bottom() + 60.0);
+    drag(&mut h, from_f, f.center(), Modifiers::COMMAND);
+    assert_eq!(sel(&h), ["c.txt", "d.txt", "e.txt", "f.txt"]);
+    // A plain click on empty space clears.
+    let empty = egui::pos2(a.left() + 4.0, a.bottom() + 200.0);
+    h.event(egui::Event::PointerMoved(empty));
+    h.event(egui::Event::PointerButton { pos: empty, button: egui::PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE });
+    h.event(egui::Event::PointerButton { pos: empty, button: egui::PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE });
+    h.run_steps(2);
+    assert!(sel(&h).is_empty());
 }
