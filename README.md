@@ -1,9 +1,98 @@
 # Fractale
 
-A file explorer for finding what uses disk space, that's also pleasant for
-everyday browsing. Folders on the left as rows with size bars, everything
-else on the right as a grid of previews. Sizes and search come from
+A file explorer for everyday browsing that also shows what takes the space.
+Folders are on the left as rows with size bars, each bar showing the
+folder's share of the open folder. Everything else is on the right, as a
+grid of previews or a list. Sizes and search come from
 [répertoire](https://github.com/Sigma-studios/repertoire) when it runs, and
 from Fractale's own scanning when it doesn't.
 
-Work in progress.
+Made for Linux (KDE Plasma on Wayland); it also runs on macOS for
+development.
+
+## Build and run
+
+```sh
+cargo build --release
+./target/release/fractale [PATH | file:///URI]
+./target/release/fractale --select ~/Downloads/thing.zip   # its folder, it selected
+```
+
+A file given as PATH opens its folder with the file selected. With Fractale
+already running, a second launch hands the request to the running window
+and exits (Linux, over the session bus).
+
+The Nix package needs the same runtime libraries as Sentinelle (libGL,
+wayland, libxkbcommon, the X11 libraries); see
+[docs/HANDOFF.md](docs/HANDOFF.md). `dist/` has the desktop entry
+(`MimeType=inode/directory`) and a D-Bus activation file for
+`org.freedesktop.FileManager1`.
+
+## How it uses répertoire
+
+When the répertoire daemon runs, folder sizes and search results come from
+its index. They're instant and stay live as files change, and the status
+bar shows the index state (*live*, *scanning N%*, …). Folders it doesn't
+index, and everything when it isn't running, are measured by Fractale
+itself, with the same rules (allocated bytes, hard links counted once,
+mounts not crossed). Fractale switches between the two without the numbers
+blinking, and looks for the daemon again every minute. With the daemon,
+"biggest folders here" lists the largest folders anywhere below the open
+one.
+
+## Previews
+
+- **Images:** PNG, JPEG, WebP, GIF (animated), TIFF, BMP and the like.
+- **GIMP:** XCF.
+- **Your own formats:** Pixelle sprites, terrains and palettes;
+  Orchestre songs (as a piano roll) and sound effects (as a waveform);
+  Prisme documents (their embedded preview).
+- **Audio:** waveforms.
+- **Everything else on Linux:** any installed freedesktop thumbnailer
+  (`ffmpegthumbnailer` for videos, `evince` for PDFs, …).
+
+Previews go into the shared thumbnail cache (`~/.cache/thumbnails`), so
+other file managers use them too. Each format is a small `Previewer`
+(`src/model/thumbs/previewers/`); adding a format means adding one.
+
+## Keyboard
+
+| Keys | |
+|---|---|
+| Arrows, Home/End, Page Up/Down | move (Shift extends the selection) |
+| Tab | switch between folders and files |
+| Enter | open (folders in Fractale, files with their app) |
+| Right / Left (folders) | expand / collapse a row |
+| Backspace, Alt+Up | parent folder |
+| Alt+Left / Alt+Right, mouse back/forward | history |
+| Typing a name | jump to it |
+| Ctrl+L | edit the path (Tab completes) |
+| Ctrl+F | search (here, or everywhere) |
+| Ctrl+A, Escape | select all, clear |
+| Ctrl+C / Ctrl+X / Ctrl+V | copy / cut / paste files |
+| Ctrl+Shift+C | copy the path as text |
+| F2 | rename |
+| Ctrl+Shift+N | new folder |
+| Delete / Shift+Delete | move to trash / delete permanently (asks) |
+| Ctrl+H | show hidden files |
+| F5 | refresh |
+| Ctrl+wheel | preview size |
+
+In search results, Enter opens a result and Alt+Enter shows it in its
+folder.
+
+Dragging files onto a folder row moves them there, or copies them if the
+folder is on another disk. Shift forces a move, Ctrl a copy.
+
+## Development
+
+```sh
+cargo test                       # everything (UI tests are headless, egui_kittest)
+scripts/vm.sh test               # the same in the Linux VM, as a user then as root
+scripts/fixtures.sh              # test trees, incl. 5,000 images, in target/fixtures
+cargo run --example preview -- OUT 256 FILE…   # render previews to look at
+```
+
+Linux checks run in a Lima VM shared with répertoire (`scripts/vm.sh`).
+Measurements, known limits and what to check on the real machine are in
+[docs/HANDOFF.md](docs/HANDOFF.md).
