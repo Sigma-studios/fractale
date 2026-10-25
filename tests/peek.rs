@@ -71,3 +71,31 @@ fn peek_shows_a_subfolders_files_without_opening_it() {
     until(&mut h, Duration::from_secs(5), "beta opened", |w| w.explorer.is_current() && w.explorer.folder.ends_with("beta"));
     assert!(h.state().explorer.peek.is_none());
 }
+
+/// Regression: navigating while peeking a folder with more files than the
+/// open one left the files pane indexing the wrong listing (a panic).
+#[test]
+fn navigating_while_peeking_a_big_folder() {
+    let s = Scratch::new("peek-nav");
+    for i in 0..40 {
+        s.file(&format!("many/f{i:02}.txt"), 10);
+    }
+    s.file("few/a.txt", 10);
+    s.file("top.txt", 10);
+    let mut h = window(&s.0);
+    listed(&mut h);
+    h.state_mut().explorer.peek(s.0.join("many"));
+    until(&mut h, Duration::from_secs(5), "the peek", |w| w.explorer.files.len() == 40);
+    // Open another folder (a row click does this), and draw frames.
+    h.state_mut().explorer.open(s.0.join("few"));
+    h.run_steps(3);
+    until(&mut h, Duration::from_secs(5), "few", |w| w.explorer.is_current() && w.explorer.files.len() == 1);
+    assert_eq!(files(&h), ["a.txt"]);
+    // Peek again and go back.
+    h.state_mut().explorer.back();
+    h.run_steps(3);
+    h.state_mut().explorer.peek(s.0.join("many"));
+    until(&mut h, Duration::from_secs(5), "the peek again", |w| w.explorer.files.len() == 40);
+    h.state_mut().explorer.up();
+    h.run_steps(5);
+}
