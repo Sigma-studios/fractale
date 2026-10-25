@@ -229,6 +229,12 @@ pub struct Window {
     pub drop_rows: Vec<(egui::Rect, PathBuf)>,
     /// Hover-to-play previews.
     pub media: media::Media,
+    /// The folder pane's bar width this frame (see `folders::bar_width`).
+    pub bar_w: f32,
+    /// A selection rectangle being dragged in the files pane.
+    pub band: Option<files::Band>,
+    /// Modifiers at the last primary press in the files pane.
+    pub press_mods: egui::Modifiers,
 }
 
 /// What a pane's scroll area looked like last frame, to scroll the cursor
@@ -281,6 +287,9 @@ impl Window {
             paste_request: None,
             drop_rows: Vec::new(),
             media,
+            bar_w: 160.0,
+            band: None,
+            press_mods: egui::Modifiers::NONE,
         }
     }
 

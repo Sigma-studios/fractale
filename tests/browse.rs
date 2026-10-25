@@ -27,7 +27,7 @@ fn clicking_a_row_opens_it_and_history_works() {
     let s = sample();
     let mut h = window(&s.0);
     listed(&mut h);
-    h.get_by_label("beta").click();
+    click_row(&mut h, "beta");
     h.run_steps(2);
     assert_eq!(h.state().explorer.folder, s.0.join("beta"));
     listed(&mut h);
@@ -49,7 +49,7 @@ fn clicking_a_row_opens_it_and_history_works() {
     assert_eq!(h.state().explorer.folder, s.0);
 
     // The breadcrumb opens a parent.
-    h.get_by_label("beta").click();
+    click_row(&mut h, "beta");
     listed(&mut h);
     let parent_name = s.0.file_name().unwrap().to_string_lossy().into_owned();
     h.get_by_label(&format!("crumb {parent_name}")).click();

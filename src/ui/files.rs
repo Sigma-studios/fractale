@@ -108,7 +108,7 @@ fn grid(ui: &mut egui::Ui, w: &mut Window) {
     if let Some(y) = scroll_target(&mut w.scroll[idx], cursor, w.explorer.reveal_cursor) {
         area = area.vertical_scroll_offset(y);
     }
-    background_menu(ui, w);
+    let bg = background_menu(ui, w);
     let mut clicked_tile = false;
     // show_rows spaces rows by the spacing in effect now; rows touch.
     ui.spacing_mut().item_spacing.y = 0.0;
@@ -142,6 +142,11 @@ fn grid(ui: &mut egui::Ui, w: &mut Window) {
         }
     });
     background_click(ui, w, out.inner_rect, clicked_tile);
+    let offset = out.state.clamped_offset().y;
+    band(ui, w, &bg, out.inner_rect, offset, n, |k| {
+        let (r, c) = ((k / columns) as f32, (k % columns) as f32);
+        Rect::from_min_size(pos2(10.0 + c * (tw + gap) + gap / 2.0, r * th), vec2(tw, th)).shrink(3.0)
+    });
     let s = &mut w.scroll[idx];
     s.offset = out.state.clamped_offset().y;
     s.viewport = out.inner_rect.height();
@@ -149,9 +154,81 @@ fn grid(ui: &mut egui::Ui, w: &mut Window) {
 
 /// Right click on empty space. Added before the items, so they're on top
 /// of it.
-fn background_menu(ui: &mut egui::Ui, w: &mut Window) {
-    let bg = ui.interact(ui.available_rect_before_wrap(), ui.scope_id().with("files-background"), Sense::click());
+fn background_menu(ui: &mut egui::Ui, w: &mut Window) -> egui::Response {
+    let bg = ui.interact(ui.available_rect_before_wrap(), ui.scope_id().with("files-background"), Sense::click_and_drag());
     bg.context_menu(|ui| super::ops::background_menu(ui, w));
+    bg
+}
+
+/// A selection rectangle dragged from empty space: everything it touches
+/// is selected (Ctrl or Shift: added to what was). `item(k)` is the k-th
+/// item's rect in content coordinates (relative to the top of the
+/// scrolled content), so items scrolled out of view count too.
+fn band(ui: &egui::Ui, w: &mut Window, bg: &egui::Response, view: Rect, offset: f32, n: usize, item: impl Fn(usize) -> Rect) {
+    let to_content = |p: egui::Pos2| pos2(p.x - view.left(), p.y - view.top() + offset);
+    // Ctrl/Shift as they were at the press (the drag starts frames later).
+    if let Some(m) = ui.input(|i| {
+        i.events.iter().rev().find_map(|e| match e {
+            egui::Event::PointerButton { button: egui::PointerButton::Primary, pressed: true, modifiers, .. } => Some(*modifiers),
+            _ => None,
+        })
+    }) {
+        w.press_mods = m;
+    }
+    if bg.drag_started_by(egui::PointerButton::Primary) {
+        if let Some(p) = bg.interact_pointer_pos() {
+            let held = ui.input(|i| i.modifiers);
+            let additive = w.press_mods.command || w.press_mods.shift || held.command || held.shift;
+            let base = if additive { w.explorer.selection.items.clone() } else { Default::default() };
+            w.band = Some(Band { anchor: to_content(p), base });
+            w.focus = Pane::Files;
+        }
+    }
+    let Some(b) = &w.band else { return };
+    if !bg.dragged() {
+        w.band = None;
+        return;
+    }
+    let Some(pointer) = ui.ctx().pointer_latest_pos() else { return };
+    let rect = Rect::from_two_pos(b.anchor, to_content(pointer));
+    let mut items = b.base.clone();
+    let mut first = None;
+    for k in 0..n {
+        if item(k).intersects(rect) {
+            let name = w.explorer.file_entry(w.explorer.files[k]).name.clone();
+            first.get_or_insert_with(|| name.clone());
+            items.insert(name);
+        }
+    }
+    w.explorer.selection.items = items;
+    if let Some(f) = first {
+        w.explorer.selection.cursor = Some((Pane::Files, f));
+    }
+    // Past the top or bottom edge: scroll that way.
+    let edge = if pointer.y < view.top() + 8.0 {
+        pointer.y - view.top() - 8.0
+    } else if pointer.y > view.bottom() - 8.0 {
+        pointer.y - view.bottom() + 8.0
+    } else {
+        0.0
+    };
+    if edge != 0.0 {
+        w.scroll[Window::pane_index(Pane::Files)].target = Some((offset + edge.clamp(-40.0, 40.0)).max(0.0));
+        ui.ctx().request_repaint();
+    }
+    // Drawn over the pane, in screen coordinates.
+    let screen = Rect::from_min_max(pos2(rect.left() + view.left(), rect.top() - offset + view.top()), pos2(rect.right() + view.left(), rect.bottom() - offset + view.top())).intersect(view);
+    let painter = ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Foreground, ui.scope_id().with("band")));
+    painter.rect_filled(screen, CornerRadius::same(3), SIZE.gamma_multiply(0.15));
+    painter.rect_stroke(screen, CornerRadius::same(3), Stroke::new(1.0, SIZE.gamma_multiply(0.8)), StrokeKind::Inside);
+}
+
+/// A rectangle being dragged in the files pane.
+pub struct Band {
+    /// Where it started, in content coordinates.
+    anchor: egui::Pos2,
+    /// What stays selected (dragged with Ctrl or Shift).
+    base: std::collections::HashSet<std::ffi::OsString>,
 }
 
 /// A click on empty space clears the selection.
@@ -351,7 +428,7 @@ fn list(ui: &mut egui::Ui, w: &mut Window) {
     if let Some(y) = scroll_target(&mut w.scroll[idx], cursor, w.explorer.reveal_cursor) {
         area = area.vertical_scroll_offset(y);
     }
-    background_menu(ui, w);
+    let bg = background_menu(ui, w);
     let mut clicked_row = false;
     // show_rows spaces rows by the spacing in effect now; rows touch.
     ui.spacing_mut().item_spacing.y = 0.0;
@@ -398,6 +475,8 @@ fn list(ui: &mut egui::Ui, w: &mut Window) {
         }
     });
     background_click(ui, w, out.inner_rect, clicked_row);
+    let (offset, width) = (out.state.clamped_offset().y, out.inner_rect.width());
+    band(ui, w, &bg, out.inner_rect, offset, n, |k| Rect::from_min_size(pos2(6.0, k as f32 * LIST_ROW_H + 1.0), vec2(width - 12.0, LIST_ROW_H - 2.0)));
     let s = &mut w.scroll[idx];
     s.offset = out.state.clamped_offset().y;
     s.viewport = out.inner_rect.height();
