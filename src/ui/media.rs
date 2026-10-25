@@ -1,5 +1,5 @@
 //! Rest the pointer on a video, an audio file or an Orchestre file for a
-//! second and it plays (see `model::playback`); move away and it stops.
+//! moment (200 ms, or `FRACTALE_HOVER_DELAY_MS`) and it plays (see `model::playback`); move away and it stops.
 //! Videos play in the tile, muted; sounds show their progress under it.
 
 use super::theme::*;
@@ -9,7 +9,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-const DELAY: Duration = Duration::from_secs(1);
+const DELAY: Duration = Duration::from_millis(200);
+
+/// How long the pointer rests before playback: `FRACTALE_HOVER_DELAY_MS`,
+/// otherwise `DELAY`.
+fn delay() -> Duration {
+    std::env::var("FRACTALE_HOVER_DELAY_MS").ok().and_then(|v| v.trim().parse().ok()).map(Duration::from_millis).unwrap_or(DELAY)
+}
 
 pub struct Media {
     /// The playable tile under the pointer, since when, and its pixel size.
@@ -19,11 +25,12 @@ pub struct Media {
     pub playing: Option<Playback>,
     texture: Option<TextureHandle>,
     wake: Arc<dyn Fn() + Send + Sync>,
+    delay: Duration,
 }
 
 impl Media {
     pub fn new(wake: Arc<dyn Fn() + Send + Sync>) -> Media {
-        Media { hovered: None, seen: None, playing: None, texture: None, wake }
+        Media { hovered: None, seen: None, playing: None, texture: None, wake, delay: delay() }
     }
 
     /// A tile is under the pointer (call every frame it is).
@@ -90,12 +97,12 @@ impl Media {
         if let Some((path, since, px)) = &self.hovered {
             if self.playing.is_none() {
                 let waited = since.elapsed();
-                if waited >= DELAY {
+                if waited >= self.delay {
                     if let Some(kind) = Kind::of(path) {
                         self.playing = Some(Playback::start(path.clone(), kind, *px, self.wake.clone()));
                     }
                 } else {
-                    ctx.request_repaint_after(DELAY - waited);
+                    ctx.request_repaint_after(self.delay - waited);
                 }
             }
         }
