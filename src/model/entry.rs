@@ -165,7 +165,7 @@ impl Category {
                 Category::Image
             }
             "mp4" | "mkv" | "webm" | "mov" | "avi" | "m4v" | "wmv" | "flv" | "mpg" | "mpeg" | "ogv" | "m2ts" | "mts" => Category::Video,
-            "mp3" | "flac" | "ogg" | "opus" | "wav" | "aac" | "m4a" | "wma" | "aiff" | "aif" | "mid" | "midi" | "orch" => Category::Audio,
+            "mp3" | "flac" | "ogg" | "opus" | "wav" | "aac" | "m4a" | "wma" | "aiff" | "aif" | "mid" | "midi" | "orch" | "orsfx" => Category::Audio,
             "zip" | "tar" | "gz" | "tgz" | "bz2" | "xz" | "zst" | "7z" | "rar" | "deb" | "rpm" | "iso" | "img" | "dmg" | "jar" | "apk" | "crate" => {
                 Category::Archive
             }

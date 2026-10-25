@@ -585,11 +585,13 @@ pub struct Sources {
     pub socket: PathBuf,
     /// How often to look for répertoire while it isn't there.
     pub retry: Duration,
+    /// The thumbnail cache (the shared one; tests use their own).
+    pub thumbnails: PathBuf,
 }
 
 impl Default for Sources {
     fn default() -> Self {
-        Sources { socket: repertoire_proto::socket_path(), retry: Duration::from_secs(60) }
+        Sources { socket: repertoire_proto::socket_path(), retry: Duration::from_secs(60), thumbnails: super::thumbs::cache::root() }
     }
 }
 

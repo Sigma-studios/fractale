@@ -64,7 +64,7 @@ pub type H<'a> = egui_kittest::Harness<'a, Window>;
 /// A harness around a window opened on `folder`, with app launching off
 /// and no répertoire (a socket nobody listens on).
 pub fn window(folder: &Path) -> H<'static> {
-    window_with(folder, fractale::model::explorer::Sources { socket: "/nonexistent/fractale-test.sock".into(), retry: Duration::from_secs(3600) })
+    window_with(folder, fractale::model::explorer::Sources { socket: "/nonexistent/fractale-test.sock".into(), retry: Duration::from_secs(3600), thumbnails: thumbnails() })
 }
 
 pub fn window_with(folder: &Path, sources: fractale::model::explorer::Sources) -> H<'static> {
@@ -91,4 +91,10 @@ pub fn until(h: &mut H, timeout: Duration, what: &str, cond: impl Fn(&Window) ->
 pub fn listed(h: &mut H) {
     until(h, Duration::from_secs(10), "the listing", |w| w.explorer.is_current());
     h.run_steps(2);
+}
+
+/// The thumbnail cache tests use, inside the build directory (never the
+/// user's).
+pub fn thumbnails() -> PathBuf {
+    Path::new(env!("CARGO_TARGET_TMPDIR")).join("thumbnails")
 }

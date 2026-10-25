@@ -99,7 +99,7 @@ fn tree(s: &Scratch) {
 }
 
 fn sources(socket: &Path) -> Sources {
-    Sources { socket: socket.to_path_buf(), retry: Duration::from_millis(300) }
+    Sources { socket: socket.to_path_buf(), retry: Duration::from_millis(300), thumbnails: common::thumbnails() }
 }
 
 fn fallback_sizes(folder: &Path) -> fractale::model::sizes::FolderSizes {

@@ -5,6 +5,7 @@
 use super::icons;
 use super::theme::*;
 use super::widgets::{date, pane_header, scroll_target, sort_choices, Message};
+use super::previews::Previews;
 use super::Window;
 use crate::model::entry::{Entry, Kind};
 use crate::model::explorer::Layout as FileLayout;
@@ -94,9 +95,11 @@ fn grid(ui: &mut egui::Ui, w: &mut Window) {
         area = area.vertical_scroll_offset(y);
     }
     let mut clicked_tile = false;
+    // show_rows spaces rows by the spacing in effect now; rows touch.
+    ui.spacing_mut().item_spacing.y = 0.0;
     let out = area.show_rows(ui, th, rows, |ui, range| {
         ui.spacing_mut().item_spacing = vec2(0.0, 0.0);
-        for r in range {
+        for r in range.clone() {
             let (row_rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), th), Sense::hover());
             for c in 0..columns {
                 let k = r * columns + c;
@@ -107,6 +110,19 @@ fn grid(ui: &mut egui::Ui, w: &mut Window) {
                 let x = row_rect.left() + 10.0 + c as f32 * (tw + gap) + gap / 2.0;
                 let rect = Rect::from_min_size(pos2(x, row_rect.top()), vec2(tw, th));
                 clicked_tile |= tile(ui, w, i, rect);
+            }
+        }
+        // A screen ahead (and a row behind), so scrolling finds previews
+        // ready.
+        let ahead = range.end..(range.end + range.len().max(1)).min(rows);
+        let behind = range.start.saturating_sub(1)..range.start;
+        for r in ahead.chain(behind) {
+            for k in r * columns..((r + 1) * columns).min(n) {
+                let e = w.explorer.entry(w.explorer.files[k]);
+                if let Some(key) = preview_key(w, e, ui.ctx().pixels_per_point()) {
+                    let size = e.size;
+                    w.previews.want(key, size);
+                }
             }
         }
     });
@@ -148,7 +164,17 @@ fn tile(ui: &mut egui::Ui, w: &mut Window, i: usize, rect: Rect) -> bool {
         p.rect_stroke(card, CornerRadius::same(8), Stroke::new(1.0, SIZE.gamma_multiply(0.7)), StrokeKind::Inside);
     }
     let icon_rect = Rect::from_min_size(pos2(rect.center().x - w.tile / 2.0, rect.top() + 8.0), vec2(w.tile, w.tile));
-    draw_icon(&p, icon_rect, &e);
+    let ppp = ui.ctx().pixels_per_point();
+    let shown = preview_key(w, &e, ppp).and_then(|k| w.previews.get(&k, e.size));
+    match shown {
+        Some(s) => {
+            draw_preview(&p, icon_rect, s.texture.id(), s.size / ppp, &e);
+            if let Some(next) = s.next {
+                ui.ctx().request_repaint_after(next);
+            }
+        }
+        None => draw_icon(&p, icon_rect, &e),
+    }
     // Name on two lines, cut in the middle if needed.
     let color = if e.is_hidden() { MUTED } else { TEXT };
     let text_w = rect.width() - 14.0;
@@ -161,6 +187,32 @@ fn tile(ui: &mut egui::Ui, w: &mut Window, i: usize, rect: Rect) -> bool {
     let resp = hover(resp, &e);
     interactions(ui, w, &resp, &e.name);
     resp.clicked() || resp.double_clicked() || resp.secondary_clicked()
+}
+
+/// Which preview a file's tile shows (files and links to files; not empty
+/// ones).
+fn preview_key(w: &Window, e: &Entry, ppp: f32) -> Option<crate::model::thumbs::Key> {
+    let file = match e.kind {
+        Kind::File => true,
+        Kind::Symlink => e.link.as_ref().is_some_and(|l| l.resolves_to == Some(Kind::File)),
+        _ => false,
+    };
+    (file && e.size > 0).then(|| Previews::key(&w.explorer.folder.join(&e.name), e.mtime, w.tile * ppp))
+}
+
+/// A preview fitted into the icon square, at most at its own size (small
+/// images aren't blown up blurry; pixel art is pre-scaled and may grow),
+/// sitting on the square's bottom edge like icons do.
+fn draw_preview(p: &egui::Painter, rect: Rect, tex: egui::TextureId, natural: egui::Vec2, e: &Entry) {
+    let pixel_art = e.extension().is_some_and(|x| x.eq_ignore_ascii_case("pxl"));
+    let k = (rect.width() / natural.x).min(rect.height() / natural.y);
+    let k = if pixel_art { k } else { k.min(1.0) };
+    let size = natural * k;
+    let r = Rect::from_min_size(pos2(rect.center().x - size.x / 2.0, rect.bottom() - size.y), size);
+    p.image(tex, r, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), egui::Color32::WHITE);
+    if e.kind == Kind::Symlink {
+        icons::link_badge(p, rect, false);
+    }
 }
 
 fn draw_icon(p: &egui::Painter, rect: Rect, e: &Entry) {
@@ -264,6 +316,8 @@ fn list(ui: &mut egui::Ui, w: &mut Window) {
         area = area.vertical_scroll_offset(y);
     }
     let mut clicked_row = false;
+    // show_rows spaces rows by the spacing in effect now; rows touch.
+    ui.spacing_mut().item_spacing.y = 0.0;
     let out = area.show_rows(ui, LIST_ROW_H, n, |ui, range| {
         ui.spacing_mut().item_spacing.y = 0.0;
         for k in range {

@@ -17,6 +17,20 @@ rayon = "1.10"
 # running (same rules, so numbers don't jump), and its client.
 repertoire-core = { git = "https://github.com/Sigma-studios/repertoire", rev = "fd764be55fea9dc3547fbebcabb7a87156ffd17d" }
 repertoire-proto = { git = "https://github.com/Sigma-studios/repertoire", rev = "fd764be55fea9dc3547fbebcabb7a87156ffd17d" }
+# Previews.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff", "qoi", "tga", "ico", "hdr", "pnm"] }
+# Decodes JPEGs at 1/2, 1/4 or 1/8 scale, much faster for big photos.
+jpeg-decoder = { version = "0.3", default-features = false }
+png = "0.18"
+md5 = { package = "md-5", version = "0.11" }
+flate2 = "1"
+lz4_flex = "0.11"
+ron = "0.10"
+serde = { version = "1", features = ["derive"] }
+symphonia = { version = "0.6", features = ["all"] }
+# Orchestre's song model and synth, for song and sound effect previews.
+orchestre-core = { git = "https://github.com/Sigma-studios/orchestre", rev = "9969a78e79d9b446de1bc563182834ae9b9afe45" }
+orchestre-dsp = { git = "https://github.com/Sigma-studios/orchestre", rev = "9969a78e79d9b446de1bc563182834ae9b9afe45" }
 
 [dev-dependencies]
 # The daemon itself, run in a helper process by the integration tests.
