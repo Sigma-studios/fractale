@@ -92,6 +92,7 @@ fn copy_paste_and_conflicts() {
 
     // Cut then paste moves, and empties the clipboard.
     h.get_by_label("b.txt").click();
+    wait_for(&mut h, "b.txt alone selected", |w| w.explorer.selection.items.len() == 1 && w.explorer.selection.is_selected(std::ffi::OsStr::new("b.txt")));
     h.key_press_modifiers(Modifiers::COMMAND, Key::X);
     h.key_press(Key::Backspace);
     wait_for(&mut h, "parent", |w| w.explorer.is_current() && !w.explorer.folder.ends_with("dest"));

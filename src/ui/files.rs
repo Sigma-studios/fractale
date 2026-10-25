@@ -154,9 +154,11 @@ fn background_click(ui: &egui::Ui, w: &mut Window, area: Rect, on_item: bool) {
 
 /// One tile; true if it was clicked.
 fn tile(ui: &mut egui::Ui, w: &mut Window, i: usize, rect: Rect) -> bool {
-    let id = ui.scope_id().with(("tile", i, w.explorer.view_version));
-    let resp = ui.interact(rect.shrink(3.0), id, Sense::click_and_drag());
     let e = w.explorer.entry(i).clone();
+    // By name: a rebuild between press and release (sizes arriving, a
+    // refresh) must not lose the click.
+    let id = ui.scope_id().with(("tile", &e.name));
+    let resp = ui.interact(rect.shrink(3.0), id, Sense::click_and_drag());
     let sel = w.explorer.selection.is_selected(&e.name);
     resp.widget_info(|| egui::WidgetInfo::selected(egui::Role::Button, true, sel, e.name_lossy()));
     let selected = w.explorer.selection.is_selected(&e.name);
