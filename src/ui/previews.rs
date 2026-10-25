@@ -13,6 +13,15 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+/// Smooth when shrinking, sharp pixels when enlarging (no blur on small
+/// pictures and pixel art).
+pub const UPSCALE: TextureOptions = TextureOptions {
+    magnification: egui::TextureFilter::Nearest,
+    minification: egui::TextureFilter::Linear,
+    wrap_mode: egui::TextureWrapMode::ClampToEdge,
+    mipmap_mode: None,
+};
+
 /// Texture memory kept for previews.
 const MEMORY_CAP: usize = 256 << 20;
 /// Pixels uploaded per frame at most (about 8 MB), so a screenful of
@@ -231,9 +240,7 @@ impl Texture {
 }
 
 fn upload(ctx: &egui::Context, key: &Key, r: Rendered, frame: u64) -> Texture {
-    // Pixel art is pre-scaled by whole factors; keep it crisp on screen.
-    let pixel_art = key.path.extension().is_some_and(|e| e.eq_ignore_ascii_case("pxl"));
-    let options = if pixel_art { TextureOptions::NEAREST } else { TextureOptions::LINEAR };
+    let options = UPSCALE;
     let name = key.path.to_string_lossy();
     let frames: Vec<(image::RgbaImage, Duration)> = match r {
         Rendered::Still(i) => vec![(i, Duration::ZERO)],

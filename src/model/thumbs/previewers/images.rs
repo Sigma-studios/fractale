@@ -43,7 +43,13 @@ impl Previewer for Images {
             limits.max_alloc = Some(1 << 30);
             decoder.set_limits(limits).map_err(|e| e.to_string())?;
             let dynimg = image::DynamicImage::from_decoder(decoder).map_err(|e| e.to_string())?;
-            dynimg.thumbnail(max, max).to_rgba8()
+            // `thumbnail` would also enlarge (and blur) small pictures: they
+            // stay at their size, the grid enlarges them with sharp pixels.
+            if w > max || h > max {
+                dynimg.thumbnail(max, max).to_rgba8()
+            } else {
+                dynimg.to_rgba8()
+            }
         };
         let mut img = image::DynamicImage::ImageRgba8(super::shrink(img, max));
         img.apply_orientation(orientation);
