@@ -428,7 +428,11 @@ impl Explorer {
     }
 
     fn go(&mut self, folder: PathBuf, cursor: Option<OsString>) {
-        self.peek = None;
+        // The files pane's indices point into the peeked listing: they
+        // must follow it back to the open folder's (a stale index crashed).
+        if self.peek.take().is_some() {
+            self.rebuild();
+        }
         self.generation += 1;
         self.top = None;
         self.folder = folder;
