@@ -11,7 +11,6 @@
 //! private temporary file.
 
 use super::super::{FileInfo, Previewer, Rendered};
-use std::collections::HashMap;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::os::unix::process::CommandExt;

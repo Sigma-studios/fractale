@@ -14,12 +14,25 @@ pub fn open_default(path: &Path) {
     spawn_detached(std::process::Command::new(program).arg(path));
 }
 
-/// The system clipboard's text, for pasting into text fields.
+/// The system clipboard's text, for pasting into text fields (macOS, and
+/// X11 sessions; under Wayland the data device does it).
 pub fn clipboard_text() -> Option<String> {
-    #[cfg(target_os = "macos")]
-    return arboard::Clipboard::new().ok()?.get_text().ok();
-    #[cfg(not(target_os = "macos"))]
-    None
+    with_clipboard(|c| c.get_text().ok())
+}
+
+/// Put text on the system clipboard (X11 sessions; macOS goes through
+/// egui).
+pub fn set_clipboard_text(text: String) {
+    with_clipboard(|c| c.set_text(text).ok());
+}
+
+/// One clipboard for the whole run: on X11 the owner must stay alive to
+/// hand the text to whoever pastes it.
+fn with_clipboard<T>(f: impl FnOnce(&mut arboard::Clipboard) -> Option<T>) -> Option<T> {
+    use std::sync::{Mutex, OnceLock};
+    static CLIPBOARD: OnceLock<Mutex<Option<arboard::Clipboard>>> = OnceLock::new();
+    let mut c = CLIPBOARD.get_or_init(|| Mutex::new(arboard::Clipboard::new().ok())).lock().ok()?;
+    f(c.as_mut()?)
 }
 
 /// Start a program without waiting for it or keeping its output.

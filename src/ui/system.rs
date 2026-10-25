@@ -87,18 +87,14 @@ impl System {
                         raw.events.push(egui::Event::PointerMoved(p));
                     }
                 }
-                Event::DragMotion { x, y } => {
-                    if self.own_drag {
-                        let p = pos(x, y);
-                        self.hover = Some(p);
-                        raw.events.push(egui::Event::PointerMoved(p));
-                    }
+                Event::DragMotion { x, y } if self.own_drag => {
+                    let p = pos(x, y);
+                    self.hover = Some(p);
+                    raw.events.push(egui::Event::PointerMoved(p));
                 }
-                Event::DragLeave => {
-                    if self.own_drag {
-                        self.hover = None;
-                        raw.events.push(egui::Event::PointerGone);
-                    }
+                Event::DragLeave if self.own_drag => {
+                    self.hover = None;
+                    raw.events.push(egui::Event::PointerGone);
                 }
                 Event::Dropped { paths, action, x, y, own } => {
                     if action == Action::Ask {
@@ -169,6 +165,12 @@ impl System {
     pub fn output(&mut self, ctx: &egui::Context, w: &mut Window) {
         let Some(dd) = &self.dd else {
             w.system_drag = None;
+            // X11: text through arboard (macOS: through egui).
+            if cfg!(target_os = "linux") {
+                for t in ctx.output(|o| o.commands.iter().filter_map(|c| if let egui::OutputCommand::CopyText(t) = c { Some(t.clone()) } else { None }).collect::<Vec<_>>()) {
+                    crate::model::platform::set_clipboard_text(t);
+                }
+            }
             return;
         };
         let copied: Vec<String> = ctx.output(|o| o.commands.iter().filter_map(|c| if let egui::OutputCommand::CopyText(t) = c { Some(t.clone()) } else { None }).collect());

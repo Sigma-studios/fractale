@@ -1,0 +1,15 @@
+[package]
+name = "fractale-e2e-peer"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The other app in Fractale's Wayland clipboard/drag-and-drop end-to-end tests"
+
+# Its own workspace: a test tool, not part of Fractale's build.
+[workspace]
+
+[dependencies]
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client"] }
+wayland-protocols-plasma = { version = "0.3", features = ["client"] }
+libc = "0.2"
