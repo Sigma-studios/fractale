@@ -1,5 +1,5 @@
-//! Previews that play while the pointer rests on a tile: videos (muted
-//! frames from `ffmpeg`, at real speed, looping), audio files (decoded with
+//! Previews that play while the pointer rests on a tile: videos (frames
+//! and sound from `ffmpeg`, at real speed, looping), audio files (decoded with
 //! symphonia), and Orchestre sound effects and songs (rendered live by
 //! Orchestre's own synth). Sound goes to the default output device through
 //! cpal. One preview plays at a time; dropping it stops everything at once.
@@ -48,8 +48,9 @@ pub struct Playback {
     frames: Option<Receiver<Frame>>,
     /// Position in the file, 0..1, as f32 bits (when known).
     progress: Arc<AtomicU32>,
-    /// The ffmpeg process group, to kill on stop.
+    /// The ffmpeg process groups (picture, sound), to kill on stop.
     group: Arc<Mutex<Option<u32>>>,
+    audio_group: Arc<Mutex<Option<u32>>>,
 }
 
 impl Playback {
@@ -58,24 +59,27 @@ impl Playback {
         let stop = Arc::new(AtomicBool::new(false));
         let progress = Arc::new(AtomicU32::new(f32::NAN.to_bits()));
         let group = Arc::new(Mutex::new(None));
+        let audio_group = Arc::new(Mutex::new(None));
         let mut frames = None;
-        let (p, s, g, pr) = (path.clone(), stop.clone(), group.clone(), progress.clone());
-        let spawned = match kind {
-            Kind::Video => {
-                let (tx, rx) = sync_channel(2);
-                frames = Some(rx);
-                std::thread::Builder::new().name("preview-video".into()).spawn(move || video(&p, px, &s, &g, &tx, &*wake))
+        if kind == Kind::Video {
+            let (tx, rx) = sync_channel(2);
+            frames = Some(rx);
+            let (p, s, g) = (path.clone(), stop.clone(), group.clone());
+            if let Err(e) = std::thread::Builder::new().name("preview-video".into()).spawn(move || video(&p, px, &s, &g, &tx, &*wake)) {
+                eprintln!("fractale: preview thread: {e}");
             }
-            _ => std::thread::Builder::new().name("preview-sound".into()).spawn(move || {
-                if let Err(e) = sound(&p, kind, &s, &pr) {
-                    eprintln!("fractale: can't play {}: {e}", p.display());
-                }
-            }),
-        };
+        }
+        // Everything has sound (a video's own track, if it has one).
+        let (p, s, g, pr) = (path.clone(), stop.clone(), audio_group.clone(), progress.clone());
+        let spawned = std::thread::Builder::new().name("preview-sound".into()).spawn(move || {
+            if let Err(e) = sound(&p, kind, &s, &pr, &g) {
+                eprintln!("fractale: can't play {}: {e}", p.display());
+            }
+        });
         if let Err(e) = spawned {
             eprintln!("fractale: preview thread: {e}");
         }
-        Playback { path, kind, stop, frames, progress, group }
+        Playback { path, kind, stop, frames, progress, group, audio_group }
     }
 
     /// The newest video frame since the last call.
@@ -92,11 +96,22 @@ impl Playback {
 impl Drop for Playback {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
-        if let Some(pid) = self.group.lock().unwrap().take() {
-            // SAFETY: plain syscall; the group is ffmpeg's own, and its
-            // reader thread reaps it.
-            unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
+        for g in [&self.group, &self.audio_group] {
+            if let Some(pid) = g.lock().unwrap().take() {
+                // SAFETY: plain syscall; the group is ffmpeg's own, and its
+                // reader thread reaps it.
+                unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
+            }
         }
+    }
+}
+
+/// Where a video preview starts: past the opening (often black or a logo).
+fn video_start(duration: f64) -> f64 {
+    if duration > 4.0 {
+        duration * 0.1
+    } else {
+        0.0
     }
 }
 
@@ -107,9 +122,9 @@ fn video(path: &Path, px: u32, stop: &AtomicBool, group: &Mutex<Option<u32>>, tx
     use std::process::{Command, Stdio};
     let Some((duration, w, h)) = super::thumbs::previewers::video::probe(path) else { return };
     let (fw, fh) = super::thumbs::fit(w.max(1), h.max(1), px.max(16));
+    let mut start = video_start(duration);
     // Even sizes: some pixel formats need them.
     let (fw, fh) = ((fw & !1).max(2), (fh & !1).max(2));
-    let mut start = if duration > 4.0 { duration * 0.1 } else { 0.0 };
     while !stop.load(Ordering::Relaxed) {
         let child = Command::new("ffmpeg")
             .args(["-v", "error", "-ss", &format!("{start:.2}"), "-re", "-i"])
@@ -145,7 +160,7 @@ fn video(path: &Path, px: u32, stop: &AtomicBool, group: &Mutex<Option<u32>>, tx
 /// Samples for the device, interleaved stereo at its rate; false when done.
 type Source = Box<dyn FnMut(&mut Vec<f32>) -> bool + Send>;
 
-fn sound(path: &Path, kind: Kind, stop: &Arc<AtomicBool>, progress: &Arc<AtomicU32>) -> Result<(), String> {
+fn sound(path: &Path, kind: Kind, stop: &Arc<AtomicBool>, progress: &Arc<AtomicU32>, group: &Arc<Mutex<Option<u32>>>) -> Result<(), String> {
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     let device = cpal::default_host().default_output_device().ok_or("no audio output")?;
     let config = device.default_output_config().map_err(|e| e.to_string())?;
@@ -154,7 +169,7 @@ fn sound(path: &Path, kind: Kind, stop: &Arc<AtomicBool>, progress: &Arc<AtomicU
         Kind::Audio => audio_file(path, rate, progress.clone())?,
         Kind::Sound => orchestre_sound(path, rate)?,
         Kind::Song => orchestre_song(path, rate, progress.clone())?,
-        Kind::Video => return Ok(()),
+        Kind::Video => video_sound(path, rate, group.clone(), stop.clone())?,
     };
     // Filled here, drained by the device callback (about half a second
     // ahead, so a busy machine doesn't stutter).
@@ -217,6 +232,66 @@ fn out_stream<T: cpal::SizedSample + cpal::FromSample<f32> + Send + 'static>(dev
             None,
         )
         .map_err(|e| e.to_string())
+}
+
+/// A video's sound track, decoded by ffmpeg straight to the device's rate,
+/// from where the picture starts, looping with it. A video without sound
+/// ends at once.
+fn video_sound(path: &Path, rate: u32, group: Arc<Mutex<Option<u32>>>, stop: Arc<AtomicBool>) -> Result<Source, String> {
+    use std::io::Read;
+    use std::os::unix::process::CommandExt;
+    use std::process::{Command, Stdio};
+    let (duration, _, _) = super::thumbs::previewers::video::probe(path).ok_or("not a video ffprobe can read")?;
+    let path = path.to_path_buf();
+    let spawn = move |start: f64| {
+        let child = Command::new("ffmpeg")
+            .args(["-v", "error", "-ss", &format!("{start:.2}"), "-i"])
+            .arg(&path)
+            .args(["-vn", "-f", "f32le", "-ac", "2", "-ar", &rate.to_string(), "pipe:1"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .process_group(0)
+            .spawn()
+            .ok()?;
+        Some(child)
+    };
+    let mut child = spawn(video_start(duration)).ok_or("can't run ffmpeg")?;
+    *group.lock().unwrap() = Some(child.id());
+    let mut any = false;
+    let mut buf = vec![0u8; 4096 * 4];
+    // A read can end mid-sample: the bytes wait for the next one.
+    let mut carry: Vec<u8> = Vec::new();
+    Ok(Box::new(move |out: &mut Vec<f32>| loop {
+        if stop.load(Ordering::Relaxed) {
+            return false;
+        }
+        let n = child.stdout.as_mut().map_or(0, |o| o.read(&mut buf).unwrap_or(0));
+        if n > 0 {
+            any = true;
+            carry.extend_from_slice(&buf[..n]);
+            let whole = carry.len() - carry.len() % 4;
+            out.extend(carry[..whole].chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])));
+            carry.drain(..whole);
+            return true;
+        }
+        let _ = child.kill();
+        let _ = child.wait();
+        if !any {
+            // No sound track.
+            return false;
+        }
+        // The end: again from the start, like the picture.
+        carry.clear();
+        match spawn(0.0) {
+            Some(c) => {
+                *group.lock().unwrap() = Some(c.id());
+                child = c;
+                any = false;
+            }
+            None => return false,
+        }
+    }))
 }
 
 /// An audio file decoded as it plays, resampled to the device's rate.
@@ -512,10 +587,52 @@ mod source_tests {
         let stop = Arc::new(AtomicBool::new(false));
         let progress = Arc::new(AtomicU32::new(f32::NAN.to_bits()));
         let start = std::time::Instant::now();
-        sound(&p, Kind::Audio, &stop, &progress).unwrap();
+        sound(&p, Kind::Audio, &stop, &progress, &Arc::new(Mutex::new(None))).unwrap();
         eprintln!("played a 1 s file in {:?}", start.elapsed());
         assert_eq!(f32::from_bits(progress.load(Ordering::Relaxed)), 1.0);
         assert!(start.elapsed() >= Duration::from_millis(800), "it played in real time");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_videos_sound_track_plays_and_a_silent_video_ends() {
+        if !super::super::thumbs::previewers::video::available() {
+            eprintln!("no ffmpeg: skipped");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("fractale-vsound-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (with, without) = (dir.join("with.mp4"), dir.join("without.mp4"));
+        let make = |out: &Path, sound: bool| {
+            let mut c = std::process::Command::new("ffmpeg");
+            c.args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=duration=2:size=160x120:rate=25"]);
+            if sound {
+                c.args(["-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-c:a", "aac"]);
+            }
+            c.args(["-pix_fmt", "yuv420p", "-shortest"]).arg(out);
+            assert!(c.status().unwrap().success());
+        };
+        make(&with, true);
+        make(&without, false);
+        let stop = Arc::new(AtomicBool::new(false));
+        let g = Arc::new(Mutex::new(None));
+        let mut s = video_sound(&with, 48000, g.clone(), stop.clone()).unwrap();
+        let mut got = Vec::new();
+        let mut chunk = Vec::new();
+        while got.len() < 48000 * 2 && s(&mut chunk) {
+            got.append(&mut chunk);
+        }
+        assert!(got.len() >= 48000 * 2, "a second of stereo: {}", got.len());
+        // lavfi's sine is at 1/8 amplitude.
+        let peak = got.iter().fold(0f32, |m, v| m.max(v.abs()));
+        assert!(peak > 0.05, "the tone is there: peak {peak}");
+        stop.store(true, Ordering::Relaxed);
+        if let Some(pid) = g.lock().unwrap().take() {
+            // SAFETY: plain syscall on ffmpeg's own group.
+            unsafe { libc::kill(-(pid as libc::pid_t), libc::SIGKILL) };
+        }
+        let mut silent = video_sound(&without, 48000, Arc::new(Mutex::new(None)), Arc::new(AtomicBool::new(false))).unwrap();
+        assert!(!silent(&mut chunk), "no sound track: ends at once");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

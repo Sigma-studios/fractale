@@ -102,7 +102,7 @@ Fractale share work. Failures go to `fail/fractale-<version>/`.
 **Playing on hover:** resting the pointer on a video, an audio file or an
 Orchestre file for 200 ms plays it, and moving away stops it.
 `FRACTALE_HOVER_DELAY_MS` changes the wait (`0` plays at once).
-- Videos play muted inside the tile, from 10% in, looping.
+- Videos play inside the tile with their sound, from 10% in, looping.
 - Audio files play from the start through the default output, with a
   progress bar.
 - Orchestre sound effects and songs are rendered live by Orchestre's own
@@ -161,8 +161,7 @@ plugins, not `.thumbnailer` files, and can't be used.
   without a preview picture show their text, not their layout.
   woff/woff2 fonts and encrypted PDFs get icons. The first SVG, document
   page or font of a run waits about 1 s while the system fonts load.
-- **Hover playback:** videos are muted, and only grid tiles play (not the
-  list).
+- **Hover playback:** only grid tiles play (not the list).
 - **Previews:** failures are remembered until the file changes. A
   thumbnailer installed later doesn't retry files a previewer already
   failed on (types nothing handled aren't recorded, so those do get

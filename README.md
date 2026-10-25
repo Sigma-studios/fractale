@@ -56,7 +56,7 @@ one.
 - **Everything else on Linux:** any installed freedesktop thumbnailer.
 
 Rest the pointer on a video, an audio file or an Orchestre file for a
-moment and it plays (videos muted, in the tile); move away to stop. The
+moment and it plays (videos in the tile, with their sound); move away to stop. The
 wait is 200 ms; `FRACTALE_HOVER_DELAY_MS` changes it.
 
 Previews go into the shared thumbnail cache (`~/.cache/thumbnails`), so
