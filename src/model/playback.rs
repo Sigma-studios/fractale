@@ -271,7 +271,7 @@ fn video_sound(path: &Path, rate: u32, group: Arc<Mutex<Option<u32>>>, stop: Arc
             any = true;
             carry.extend_from_slice(&buf[..n]);
             let whole = carry.len() - carry.len() % 4;
-            out.extend(carry[..whole].chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])));
+            out.extend(carry[..whole].as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)));
             carry.drain(..whole);
             return true;
         }
