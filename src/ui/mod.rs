@@ -496,7 +496,16 @@ impl Window {
                         Key::A if cmd => self.explorer.select_all(),
                         Key::H if cmd => self.explorer.toggle_hidden(),
                         Key::F5 => self.explorer.refresh(),
+                        Key::Escape if self.explorer.peek.is_some() => self.explorer.close_peek(),
                         Key::Escape => self.explorer.selection.clear(),
+                        // Peek the folder under the cursor.
+                        Key::Space if pane == Pane::Folders => {
+                            if let Some((Pane::Folders, name)) = self.explorer.selection.cursor.clone() {
+                                if self.explorer.find(&name).is_some_and(|e| e.opens_as_folder()) {
+                                    self.explorer.peek(self.explorer.folder.join(&name));
+                                }
+                            }
+                        }
                         _ => {}
                     }
                 }

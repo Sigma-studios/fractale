@@ -86,6 +86,18 @@ pub struct Explorer {
     pub notice: Option<(String, Instant)>,
     /// Answers to `Quick::Count`, for the delete confirmation.
     pub counted: Option<(Vec<PathBuf>, u64, u64)>,
+    /// A subfolder whose files the files pane shows, without opening it.
+    pub peek: Option<Peek>,
+    peeker: Lister,
+    peek_generation: u64,
+}
+
+/// Looking into a subfolder from its row (the eye button, or Space).
+#[derive(Clone, Debug)]
+pub struct Peek {
+    pub path: PathBuf,
+    /// Until it's listed, the pane is empty.
+    pub listing: Option<Arc<Listing>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -120,7 +132,13 @@ impl Explorer {
             view_version: 0,
             reveal_cursor: false,
             type_ahead: TypeAhead::default(),
-            lister: Lister::spawn(move || w2()),
+            lister: Lister::spawn({
+                let w = w2.clone();
+                move || w()
+            }),
+            peeker: Lister::spawn(move || w2()),
+            peek: None,
+            peek_generation: 0,
             sizer: Fallback::spawn(wake.clone()),
             searcher: Searcher::spawn(sources.socket.clone(), wake.clone()),
             search: None,
@@ -159,6 +177,19 @@ impl Explorer {
     /// Pick up results from the services. True if anything changed.
     pub fn poll(&mut self) -> bool {
         let mut changed = self.poll_ops();
+        while let Ok(msg) = self.peeker.rx.try_recv() {
+            if let Msg::Listed(l) = msg {
+                if l.generation == self.peek_generation {
+                    if let Some(p) = self.peek.as_mut() {
+                        p.listing = Some(l);
+                        changed = true;
+                    }
+                }
+            }
+        }
+        if changed {
+            self.rebuild();
+        }
         while let Ok(msg) = self.lister.rx.try_recv() {
             match msg {
                 Msg::Listed(l) if l.generation == self.generation => {
@@ -397,6 +428,7 @@ impl Explorer {
     }
 
     fn go(&mut self, folder: PathBuf, cursor: Option<OsString>) {
+        self.peek = None;
         self.generation += 1;
         self.top = None;
         self.folder = folder;
@@ -441,6 +473,9 @@ impl Explorer {
     /// F5: list again and measure again.
     pub fn refresh(&mut self) {
         self.lister.refresh();
+        if self.peek.is_some() {
+            self.peeker.refresh();
+        }
         if self.uses_daemon() {
             self.watch_sizes();
         } else {
@@ -470,22 +505,91 @@ impl Explorer {
         self.listing.entries.iter().find(|e| e.name == name)
     }
 
+    /// The folder the files pane shows: the peeked one, or the open one.
+    pub fn files_folder(&self) -> &Path {
+        self.peek.as_ref().map_or(&self.folder, |p| &p.path)
+    }
+
+    /// The listing the files pane shows (empty while a peek loads).
+    pub fn files_listing(&self) -> &Listing {
+        static EMPTY: std::sync::OnceLock<Listing> = std::sync::OnceLock::new();
+        match &self.peek {
+            Some(p) => p.listing.as_deref().unwrap_or_else(|| EMPTY.get_or_init(Listing::default)),
+            None => &self.listing,
+        }
+    }
+
+    /// An entry of the files pane (`files` holds indices into its listing).
+    pub fn file_entry(&self, i: usize) -> &Entry {
+        &self.files_listing().entries[i]
+    }
+
+    pub fn find_in(&self, pane: Pane, name: &OsStr) -> Option<&Entry> {
+        match pane {
+            Pane::Folders => self.find(name),
+            Pane::Files => self.find_file(name),
+        }
+    }
+
+    pub fn find_file(&self, name: &OsStr) -> Option<&Entry> {
+        self.files_listing().entries.iter().find(|e| e.name == name)
+    }
+
+    /// Where an item of `pane` lives.
+    pub fn path_in(&self, pane: Pane, name: &OsStr) -> PathBuf {
+        match pane {
+            Pane::Folders => self.folder.join(name),
+            Pane::Files => self.files_folder().join(name),
+        }
+    }
+
+    /// Show a subfolder's files in the files pane without opening it; the
+    /// same folder again (or the open one) closes the peek.
+    pub fn peek(&mut self, path: PathBuf) {
+        if path == self.folder || self.peek.as_ref().is_some_and(|p| p.path == path) {
+            self.close_peek();
+            return;
+        }
+        self.peek_generation += 1;
+        self.peeker.open(path.clone(), self.peek_generation);
+        self.peek = Some(Peek { path, listing: None });
+        self.clear_files_selection();
+        self.rebuild();
+    }
+
+    pub fn close_peek(&mut self) {
+        if self.peek.take().is_some() {
+            self.clear_files_selection();
+            self.rebuild();
+        }
+    }
+
+    fn clear_files_selection(&mut self) {
+        let files: std::collections::HashSet<OsString> = self.files_listing().entries.iter().map(|e| e.name.clone()).collect();
+        let folders: std::collections::HashSet<OsString> = self.folders.iter().map(|&i| self.listing.entries[i].name.clone()).collect();
+        self.selection.retain(|n| folders.contains(n) && !files.contains(n));
+        if self.selection.cursor.as_ref().is_some_and(|(p, _)| *p == Pane::Files) {
+            self.selection.cursor = None;
+        }
+    }
+
     /// Names of a pane, in display order.
     pub fn order(&self, pane: Pane) -> Vec<&OsStr> {
-        let idx = match pane {
-            Pane::Folders => &self.folders,
-            Pane::Files => &self.files,
-        };
-        idx.iter().map(|&i| self.listing.entries[i].name.as_os_str()).collect()
+        match pane {
+            Pane::Folders => self.folders.iter().map(|&i| self.listing.entries[i].name.as_os_str()).collect(),
+            Pane::Files => self.files.iter().map(|&i| self.files_listing().entries[i].name.as_os_str()).collect(),
+        }
     }
 
     /// Re-filter and re-sort after a listing, sort or filter change, keeping
     /// the selection by name.
     pub fn rebuild(&mut self) {
         let entries = &self.listing.entries;
+        // The files pane may show a peeked folder's listing.
+        let file_entries = &self.files_listing().entries;
         let visible = |e: &Entry| self.show_hidden || !e.is_hidden();
         let mut folders: Vec<usize> = (0..entries.len()).filter(|&i| entries[i].is_folder() && visible(&entries[i])).collect();
-        let mut files: Vec<usize> = (0..entries.len()).filter(|&i| !entries[i].is_folder() && visible(&entries[i])).collect();
+        let mut files: Vec<usize> = (0..file_entries.len()).filter(|&i| !file_entries[i].is_folder() && visible(&file_entries[i])).collect();
         let sizes = self.sizes.get(&self.folder);
         let folder_size = |e: &Entry| sizes.and_then(|s| s.children.get(&e.name)).map(|c| c.total);
         let file_size = |e: &Entry| Some(e.bytes);
@@ -494,18 +598,25 @@ impl Explorer {
             folders.sort_by(|&a, &b| fs.compare(&entries[a], &entries[b], &folder_size));
         }
         if ls.by.is_some() {
-            files.sort_by(|&a, &b| ls.compare(&entries[a], &entries[b], &file_size));
+            files.sort_by(|&a, &b| ls.compare(&file_entries[a], &file_entries[b], &file_size));
         }
+        let names: std::collections::HashSet<OsString> = folders.iter().map(|&i| entries[i].name.clone()).chain(files.iter().map(|&i| file_entries[i].name.clone())).collect();
         self.folders = folders;
         self.files = files;
-        let names: std::collections::HashSet<&OsStr> = self.folders.iter().chain(&self.files).map(|&i| entries[i].name.as_os_str()).collect();
         self.selection.retain(|n| names.contains(n));
         if let Some((names, since)) = self.pending_select.take() {
-            let found: Vec<OsString> = names.iter().filter(|n| self.find(n).is_some()).cloned().collect();
+            // Which pane each name shows in (the files pane may be peeking).
+            let found: Vec<(OsString, Pane)> = names
+                .iter()
+                .filter_map(|n| match self.find(n) {
+                    Some(e) if self.peek.is_none() || e.is_folder() => Some((n.clone(), Pane::of(e))),
+                    _ => self.find_file(n).map(|_| (n.clone(), Pane::Files)),
+                })
+                .collect();
             if !found.is_empty() {
                 self.selection.clear();
-                for n in &found {
-                    let pane = self.find(n).map(Pane::of).unwrap_or(Pane::Files);
+                for (n, pane) in &found {
+                    let pane = *pane;
                     if self.selection.cursor.is_none() {
                         self.selection.only(pane, n);
                     } else {
@@ -566,9 +677,12 @@ impl Explorer {
 
     /// What opening the cursor's item does.
     pub fn activate(&mut self, pane: Pane, name: &OsStr) -> Activate {
-        let Some(e) = self.find(name) else { return Activate::Nothing };
-        let path = self.folder.join(name);
-        let _ = pane;
+        let found = match pane {
+            Pane::Folders => self.find(name),
+            Pane::Files => self.find_file(name),
+        };
+        let Some(e) = found else { return Activate::Nothing };
+        let path = self.path_in(pane, name);
         if e.opens_as_folder() {
             self.open(path);
             Activate::Opened
@@ -586,7 +700,8 @@ impl Explorer {
                 ops::Msg::Job(id) => {
                     let Some(v) = self.jobs.view(id) else { continue };
                     let Some(o) = &v.outcome else { continue };
-                    let here: Vec<OsString> = o.created.iter().filter(|p| p.parent() == Some(&self.folder)).filter_map(|p| p.file_name()).map(OsStr::to_owned).collect();
+                    let shown = |p: &&PathBuf| p.parent() == Some(&self.folder) || p.parent() == Some(self.files_folder());
+                    let here: Vec<OsString> = o.created.iter().filter(shown).filter_map(|p| p.file_name()).map(OsStr::to_owned).collect();
                     if !here.is_empty() {
                         self.select_when_listed(here);
                     }
@@ -596,7 +711,7 @@ impl Explorer {
                 }
                 ops::Msg::Quick(d) => match d {
                     QuickDone::Renamed { to, .. } => {
-                        if to.parent() == Some(&self.folder) {
+                        if to.parent() == Some(&self.folder) || to.parent() == Some(self.files_folder()) {
                             self.select_when_listed(to.file_name().into_iter().map(OsStr::to_owned).collect());
                         }
                     }
@@ -618,6 +733,9 @@ impl Explorer {
         self.pending_select = Some((names, Instant::now()));
         // Don't wait for the watcher to notice.
         self.lister.refresh();
+        if self.peek.is_some() {
+            self.peeker.refresh();
+        }
     }
 
     /// Go to a folder with some of its items selected (a second launch,
@@ -672,8 +790,13 @@ impl Explorer {
         }
     }
 
+    /// A new folder in `parent` (the open folder, or the peeked one).
+    pub fn new_folder_in(&mut self, parent: PathBuf) {
+        self.jobs.quick(Quick::NewFolder { parent });
+    }
+
     pub fn new_folder(&mut self) {
-        self.jobs.quick(Quick::NewFolder { parent: self.folder.clone() });
+        self.new_folder_in(self.folder.clone());
     }
 
     /// Ask for item count and size (answer in `counted`).
@@ -684,13 +807,9 @@ impl Explorer {
 
     /// The selected entries' paths, in display order (folders first).
     pub fn selected_paths(&self) -> Vec<PathBuf> {
-        self.folders
-            .iter()
-            .chain(&self.files)
-            .map(|&i| &self.listing.entries[i])
-            .filter(|e| self.selection.is_selected(&e.name))
-            .map(|e| self.folder.join(&e.name))
-            .collect()
+        let folders = self.folders.iter().map(|&i| &self.listing.entries[i]).filter(|e| self.selection.is_selected(&e.name)).map(|e| self.folder.join(&e.name));
+        let files = self.files.iter().map(|&i| self.file_entry(i)).filter(|e| self.selection.is_selected(&e.name)).map(|e| self.files_folder().join(&e.name));
+        folders.chain(files).collect()
     }
 }
 

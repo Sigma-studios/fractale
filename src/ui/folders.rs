@@ -22,6 +22,8 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 pub const ROW_H: f32 = 30.0;
+/// The peek button at the right end of folder rows.
+const EYE_W: f32 = 26.0;
 const INDENT: f32 = 18.0;
 
 #[derive(Clone, Debug)]
@@ -282,6 +284,12 @@ fn row(ui: &mut egui::Ui, w: &mut Window, r: &Row) {
             let cursor = *top && w.explorer.selection.is_cursor(Pane::Folders, name) && w.focus == Pane::Folders;
             // Files dragged here move (or copy) into this folder.
             let dev = if *top { w.explorer.find(name).map_or(w.explorer.listing.dev, |e| e.dev) } else { w.explorer.listing.dev };
+            let peeked = w.explorer.peek.as_ref().is_some_and(|pk| &pk.path == path);
+            if peeked {
+                // Its files are what the files pane shows.
+                p.rect_filled(inner, CornerRadius::same(5), SIZE.gamma_multiply(0.2));
+                p.rect_filled(Rect::from_min_size(inner.min, vec2(3.0, inner.height())), CornerRadius::same(1), SIZE);
+            }
             if super::ops::drop_target(ui, w, &resp, path, dev) {
                 p.rect_filled(inner, CornerRadius::same(5), SIZE.gamma_multiply(0.35));
                 p.rect_stroke(inner, CornerRadius::same(5), Stroke::new(1.5, SIZE), StrokeKind::Inside);
@@ -315,6 +323,18 @@ fn row(ui: &mut egui::Ui, w: &mut Window, r: &Row) {
             let name_right = bar(&p, inner, size.as_ref().map(|s| s.total), r.of, &detail, unreadable);
             let name_x = glyph.right() + 8.0;
             let color = if *hidden { MUTED } else { TEXT };
+            // The eye: this folder's files in the files pane, without
+            // opening it. Shown on hover, and while it's the one peeked.
+            let eye = Rect::from_center_size(pos2(inner.right() - EYE_W / 2.0 - 2.0, inner.center().y), vec2(EYE_W, 22.0));
+            let eye_resp = ui.interact(eye, ui.scope_id().with(("peek", path)), Sense::click());
+            if peeked || resp.contains_pointer() || eye_resp.hovered() {
+                let c = if peeked { SIZE } else if eye_resp.hovered() { TEXT } else { MUTED };
+                icons::eye(&p, eye.shrink2(vec2(3.0, 4.0)), c);
+            }
+            eye_resp.widget_info(|| egui::WidgetInfo::labeled(egui::Role::Button, true, format!("peek {label}")));
+            if eye_resp.on_hover_text(if peeked { "Back to this folder's files" } else { "Show its files on the right, without opening it (Space)" }).clicked() {
+                w.explorer.peek(path.clone());
+            }
             let field = Rect::from_min_max(pos2(name_x - 4.0, inner.top() + 1.0), pos2(name_right - 10.0, inner.bottom() - 1.0));
             if !(*top && super::ops::rename_field(ui, w, name, field)) {
                 let g = super::text::one_line(ui, &label, (name_right - 10.0 - name_x).max(20.0), font(13.0), color);
@@ -423,7 +443,9 @@ fn row(ui: &mut egui::Ui, w: &mut Window, r: &Row) {
 fn bar(p: &egui::Painter, inner: Rect, part: Option<u64>, of: Option<u64>, detail: &str, muted: bool) -> f32 {
     let text_w = 74.0;
     let bar_w = (inner.width() * 0.3).clamp(60.0, 240.0);
-    let text_right = inner.right() - 8.0;
+    // Room at the right end for a folder row's eye (every row, so bars
+    // line up).
+    let text_right = inner.right() - EYE_W - 4.0;
     p.text(pos2(text_right, inner.center().y), Align2::RIGHT_CENTER, detail, font(12.0), if muted { MUTED } else { TEXT_2 });
     let bar_rect = Rect::from_min_size(pos2(text_right - text_w - bar_w, inner.center().y - 4.0), vec2(bar_w, 8.0));
     p.rect_filled(bar_rect, CornerRadius::same(3), TRACK);

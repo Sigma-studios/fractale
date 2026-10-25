@@ -104,7 +104,7 @@ impl System {
                     // it (on the release we give it below).
                     if !own && !paths.is_empty() {
                         let p = pos(x, y);
-                        let dest = w.drop_rows.iter().find(|(r, _)| r.contains(p)).map(|(_, d)| d.clone()).unwrap_or_else(|| w.explorer.folder.clone());
+                        let dest = w.drop_rows.iter().find(|(r, _)| r.contains(p)).map(|(_, d)| d.clone()).unwrap_or_else(|| w.explorer.files_folder().to_path_buf());
                         let kind = if action == Action::Move { Kind::Move } else { Kind::Copy };
                         w.explorer.transfer(kind, paths, dest);
                     }
