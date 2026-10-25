@@ -21,10 +21,11 @@ looked at.
 | Daemon stopped → own measuring | 2 ms, numbers stay on screen | no gap |
 | Daemon started again → back on it | within the retry period (60 s; 0.3 s in tests) | < 1 min |
 | Search results, Fractale vs `repertoire search` | identical; without the daemon the walk finds the same set | equal |
-| 5,000 photos (1600×1200 JPEGs, some PNGs), window 2560×1440 at 1×, cold cache: first screen of previews (144) | 287 ms (release, macOS) | < 1 s |
-| Same, worst UI frame scrolling at 144 Hz, 40 / 100 / 300 px a frame (CPU side) | 1.6 / 1.8 / 5.3 ms | < 6.9 ms |
-| Same, tiles still on their icon while scrolling | none at 40 px a frame; at 100+ px the screen fills 0.44 s after stopping | |
-| Same, memory after 4 s of scrolling | 137–188 MB of textures (cap 256 MB), peak RSS 221 MB | |
+| 5,000 photos (1600×1200 JPEGs, some PNGs), window 2560×1440 at 1×, cold cache: first screen of previews (144) | 284–289 ms (release, macOS M-series, 8 workers); 325–370 ms (VM, 6 vCPUs, images over virtiofs) | < 1 s |
+| Same, worst UI frame scrolling at 144 Hz, 40 / 100 / 300 px a frame (CPU side) | macOS 2.5 / 2.7 / 2.2 ms; VM 2.6 / – / 2.5 ms | < 6.9 ms |
+| Same, tiles still on their icon while scrolling at 40 px a frame (5,760 px/s) | macOS none; VM in most frames (it decodes ~2× slower) | |
+| Same, after a fast flick (100 px a frame) | the screen fills 0.49 s after stopping (macOS) | |
+| Same, memory after 4 s of scrolling | ≤ 206 MB of textures (cap 256 MB), peak RSS 197 MB (macOS), 146 MB (VM) | |
 | One preview, serially: 1600×1200 JPEG / song / sound effect / Pixelle sprite | 8 ms / 0.8 ms / 5 ms / 0.6 ms | |
 | A video through ffmpegthumbnailer (VM) | 48 ms | |
 | XCF previews vs GIMP 2.10's own flattening (13 fixtures) | mean difference ≤ 0.03 of 255 | |
