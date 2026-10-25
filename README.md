@@ -94,5 +94,41 @@ cargo run --example preview -- OUT 256 FILE…   # render previews to look at
 ```
 
 Linux checks run in a Lima VM shared with répertoire (`scripts/vm.sh`).
+
+### Testing the clipboard and drag and drop
+
+`scripts/e2e/run.sh` checks the Wayland clipboard and drag and drop against
+the real binary in a headless KWin, inside the VM:
+
+```sh
+scripts/vm.sh run scripts/e2e/run.sh                     # KWin 6 if set up (below), else the system KWin
+scripts/vm.sh run KWIN=kwin_wayland scripts/e2e/run.sh   # Ubuntu's KWin 5.27
+```
+
+It opens `/tmp/fe2e/open`, then copies, cuts and pastes with `wl-clipboard`,
+and drags files in and out with `scripts/e2e/peer`. The peer is a small
+Wayland client that plays the other app, and drives the pointer and keyboard
+through KWin's fake-input protocol. Window rules put the peer at (0, 0) and
+Fractale at (400, 0) (`scripts/e2e/kwin-session.sh`), and the clicks use fixed
+coordinates for a 1400×900 window. Each check prints PASS or FAIL; logs stay
+in `/tmp/fe2e/run`.
+
+Needs `kwin-wayland`, `wl-clipboard` and `dbus-x11`
+(`sudo apt-get install kwin-wayland wl-clipboard dbus-x11`). For KWin 6, the
+version Plasma 6 ships, the VM uses nixpkgs:
+
+```sh
+sh <(curl -L https://nixos.org/nix/install) --no-daemon
+nix-build '<nixpkgs>' -A kdePackages.kwin -o /tmp/kwin6
+nix-build '<nixpkgs>' -A mesa -o /tmp/mesa-nix
+```
+
+KWin 6's headless backend needs a DRM render node, which the VM doesn't
+have. Ubuntu's arm64 kernel doesn't ship `vgem`, so build it from the
+kernel's source (`drivers/gpu/drm/vgem` at the running version) with
+`make -C /lib/modules/$(uname -r)/build M=$PWD modules`, `insmod` it, then
+`sudo chmod 666 /dev/dri/renderD128 /dev/dri/card0 /dev/udmabuf`. This
+lasts until the VM reboots.
+
 Measurements, known limits and what to check on the real machine are in
 [docs/HANDOFF.md](docs/HANDOFF.md).

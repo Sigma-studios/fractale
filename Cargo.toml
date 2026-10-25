@@ -18,6 +18,9 @@ rayon = "1.10"
 repertoire-core = { git = "https://github.com/Sigma-studios/repertoire", rev = "fd764be55fea9dc3547fbebcabb7a87156ffd17d" }
 repertoire-proto = { git = "https://github.com/Sigma-studios/repertoire", rev = "fd764be55fea9dc3547fbebcabb7a87156ffd17d" }
 raw-window-handle = "0.6"
+# The text clipboard where there's no Wayland data device (X11 sessions,
+# macOS).
+arboard = { version = "3.7", default-features = false }
 # Previews.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff", "qoi", "tga", "ico", "hdr", "pnm"] }
 # Decodes JPEGs at 1/2, 1/4 or 1/8 scale, much faster for big photos.
@@ -46,12 +49,11 @@ wayland-backend = { version = "0.3.10", features = ["client_system"] }
 # 5.x: zbus 6 dropped the blocking API, and Fractale has no async runtime.
 zbus = { version = "5.19", default-features = false, features = ["async-io", "blocking-api"] }
 
-# macOS (development only): the text clipboard through egui and arboard.
+# macOS (development only): the text clipboard through egui.
 # On Linux Fractale has its own Wayland data device (files and text), and
 # eframe's clipboard would be a second one on the same seat.
 [target.'cfg(target_os = "macos")'.dependencies]
 eframe = { version = "0.37", default-features = false, features = ["clipboard"] }
-arboard = { version = "3.7", default-features = false }
 
 [dev-dependencies]
 # The daemon itself, run in a helper process by the integration tests.

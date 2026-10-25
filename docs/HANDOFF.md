@@ -69,6 +69,7 @@ yet.
 | MIME types vs KDE (`kmimetypefinder`), 998 real files (VM) | identical | |
 | Loading the MIME and app databases | ~2 ms warm, ≤ 16 ms cold (VM) | |
 | Second launch handing over to the running window | 10 ms, then exits | |
+| Clipboard and drag and drop with other apps, real binary in headless KWin 6.8.1 (`scripts/e2e/run.sh`) | all 7 checks pass: copy/cut to `wl-paste` (with KDE's cut marker), paste from `wl-copy` and from a cut, drops onto the file area and onto a folder row, drag out to another app, drag onto a folder row inside, text paste into the search field | |
 
 ## Previews
 
@@ -115,9 +116,12 @@ plugins, not `.thumbnailer` files, and can't be used.
   may flash it in the task bar rather than raise it, since raising needs
   an activation token that Fractale doesn't pass on yet. No tabs.
 - **Clipboard and drag and drop with other apps are Wayland only.**
-  - Under X11 (and macOS) they stay inside Fractale.
-  - Under X11, text fields can't paste from other apps (no clipboard
-    there, because eframe's would be a second data device under Wayland).
+  - Under X11 (and macOS), files are copied and dragged only inside
+    Fractale. Text fields use the X11 clipboard through arboard; that path
+    hasn't been run under X11.
+  - Under Plasma 5, Shift during another app's drop doesn't turn it into
+    a move. KWin 5 applies Shift only when the target re-sends its
+    actions; KWin 6 applies it directly (checked).
   - Middle-click paste (primary selection) isn't supported.
   - A drop that asks ("ask" action) is treated as a copy.
   - Scales other than 1 and multiple seats weren't tested.
