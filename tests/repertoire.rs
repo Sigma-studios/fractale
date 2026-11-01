@@ -141,15 +141,6 @@ fn sizes_from_the_daemon_match_our_own() {
     until(&mut h, Duration::from_secs(5), "expanded row", |w| w.explorer.sizes.contains_key(&s.0.join("big")));
     let inner = &h.state().explorer.sizes[&s.0.join("big")].children[OsStr::new("inner")];
     assert_eq!(inner.total, fallback_sizes(&s.0.join("big")).children[OsStr::new("inner")].total);
-
-    // Biggest folders here.
-    h.state_mut().explorer.request_top();
-    until(&mut h, Duration::from_secs(5), "top", |w| w.explorer.top.is_some());
-    let top = h.state().explorer.top.clone().unwrap().1;
-    // Largest first, never one inside another, wrappers unwrapped.
-    assert!(top.windows(2).all(|w| w[0].1 >= w[1].1), "{top:?}");
-    assert!(top.iter().all(|(a, _)| top.iter().all(|(b, _)| a == b || !b.starts_with(a))), "nested: {top:?}");
-    assert!(top.iter().any(|(p, _)| *p == s.0.join("steamapps/common/Hades")), "wrappers are unwrapped: {top:?}");
 }
 
 #[test]

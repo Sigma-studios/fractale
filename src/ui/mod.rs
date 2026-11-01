@@ -211,9 +211,6 @@ pub struct Window {
     /// start 100 ms after typing stops).
     search_sent: (String, bool),
     pub search_edited: Option<Instant>,
-    /// "Biggest folders here" replaces the folder rows.
-    pub show_top: bool,
-    pub top_for: Option<PathBuf>,
     pub previews: previews::Previews,
     pub ops: ops::OpsUi,
     /// Requests from a second launch or another app.
@@ -276,8 +273,6 @@ impl Window {
             search_reveal: false,
             search_sent: (String::new(), false),
             search_edited: None,
-            show_top: false,
-            top_for: None,
             previews,
             ops: ops::OpsUi::default(),
             remote: None,

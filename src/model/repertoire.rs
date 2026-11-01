@@ -30,12 +30,10 @@ pub enum Msg {
     Size(SizeMsg),
     /// The daemon doesn't index this folder.
     NotIndexed(PathBuf),
-    Top { path: PathBuf, folders: Vec<(PathBuf, u64)> },
 }
 
 enum Input {
     Watch { folder: PathBuf, expanded: Vec<PathBuf> },
-    Top { path: PathBuf, n: u32 },
     Rescan,
     /// From the subscription thread: a watched folder (daemon path) changed.
     Changed { generation: u64, path: PathBuf },
@@ -62,10 +60,6 @@ impl Repertoire {
 
     pub fn watch(&self, folder: &Path, expanded: Vec<PathBuf>) {
         let _ = self.tx.send(Input::Watch { folder: folder.to_path_buf(), expanded });
-    }
-
-    pub fn top(&self, path: &Path, n: u32) {
-        let _ = self.tx.send(Input::Top { path: path.to_path_buf(), n });
     }
 
     pub fn rescan(&self) {
@@ -158,19 +152,6 @@ impl Worker {
                     self.refresh_all() && self.resubscribe()
                 } else {
                     true
-                }
-            }
-            Input::Top { path, n } => {
-                let Some(c) = self.client.as_mut() else { return true };
-                let real = std::fs::canonicalize(&path).unwrap_or_else(|_| path.clone());
-                match c.top(&real, n) {
-                    Ok(folders) => {
-                        let folders = folders.into_iter().map(|t| (rebase(&t.path.to_path(), &real, &path), t.total)).collect();
-                        self.send(Msg::Top { path, folders });
-                        true
-                    }
-                    Err(rp::Error::Daemon { .. }) => true,
-                    Err(_) => false,
                 }
             }
             Input::Rescan => {
@@ -299,14 +280,6 @@ impl Worker {
                 let _ = me.send(Input::SubscriptionEnded { generation });
             })
             .is_ok()
-    }
-}
-
-/// `path` (under the daemon's `real` root) as seen under `shown`.
-fn rebase(path: &Path, real: &Path, shown: &Path) -> PathBuf {
-    match path.strip_prefix(real) {
-        Ok(rest) => shown.join(rest),
-        Err(_) => path.to_path_buf(),
     }
 }
 

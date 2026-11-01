@@ -60,8 +60,6 @@ pub struct Explorer {
     /// for a moment at startup, it'd be cancelled right away).
     decided: bool,
     started: Instant,
-    /// répertoire's "biggest folders here" for a folder.
-    pub top: Option<(PathBuf, Vec<(PathBuf, u64)>)>,
     searcher: Searcher,
     /// A search replacing both panes, while there's a query.
     pub search: Option<SearchView>,
@@ -153,7 +151,6 @@ impl Explorer {
             not_indexed: HashSet::new(),
             decided: false,
             started: Instant::now(),
-            top: None,
             sizes: HashMap::new(),
             source: SourceState::OwnScan { busy: false },
             expanded: HashMap::new(),
@@ -261,12 +258,6 @@ impl Explorer {
                     if ours && sizes::apply(&mut self.sizes, &msg) {
                         changed = true;
                         resort = true;
-                    }
-                }
-                rep::Msg::Top { path, folders } => {
-                    if path == self.folder {
-                        self.top = Some((path, folders));
-                        changed = true;
                     }
                 }
             }
@@ -384,14 +375,6 @@ impl Explorer {
         Activate::Opened
     }
 
-    /// répertoire's biggest folders anywhere below the open one.
-    pub fn request_top(&mut self) {
-        self.top = None;
-        if self.uses_daemon() {
-            self.daemon.top(&self.folder, 20);
-        }
-    }
-
     /// Size these rows first (they're on screen).
     pub fn prioritize(&mut self, visible: Vec<OsString>) {
         if self.uses_daemon() || !self.decided {
@@ -434,7 +417,6 @@ impl Explorer {
             self.rebuild();
         }
         self.generation += 1;
-        self.top = None;
         self.folder = folder;
         self.opened_at = Instant::now();
         self.pending_cursor = cursor;

@@ -39,9 +39,7 @@ bar shows the index state (*live*, *scanning N%*, …). Folders it doesn't
 index, and everything when it isn't running, are measured by Fractale
 itself, with the same rules (allocated bytes, hard links counted once,
 mounts not crossed). Fractale switches between the two without the numbers
-blinking, and looks for the daemon again every minute. With the daemon,
-"biggest folders here" lists the largest folders anywhere below the open
-one.
+blinking, and looks for the daemon again every minute.
 
 ## Previews
 
