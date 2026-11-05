@@ -1,17 +1,17 @@
 //! The desktop side, on a private session bus: another app's "show in
 //! folder" (`org.freedesktop.FileManager1.ShowItems`, sent with `gdbus`
-//! like a browser would) selects the item in the running window, and a
-//! second `fractale` hands its request over and exits.
+//! like a browser would) opens a new window, or shows in this one when the
+//! bus started Fractale for it.
 #![cfg(target_os = "linux")]
 
 mod common;
 
 use common::*;
-use fractale::model::dbus::{claim, Claim};
-use fractale::model::remote::Show;
+use fractale::model::dbus::serve;
+use fractale::model::remote::{NewWindow, Show};
 use std::io::BufRead;
 use std::process::{Child, Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// A dbus-daemon of our own, killed on drop.
 struct Bus {
@@ -35,51 +35,86 @@ impl Drop for Bus {
     }
 }
 
+fn show_items(bus: &Bus, files: &[&std::path::Path], startup_id: &str) -> bool {
+    let uris: Vec<String> = files.iter().map(|f| format!("'file://{}'", f.display()).replace(' ', "%20")).collect();
+    let out = Command::new("gdbus")
+        .args(["call", "--session", "--dest", "org.freedesktop.FileManager1", "--object-path", "/org/freedesktop/FileManager1", "--method", "org.freedesktop.FileManager1.ShowItems"])
+        .arg(format!("[{}]", uris.join(", ")))
+        .arg(startup_id)
+        .env("DBUS_SESSION_BUS_ADDRESS", &bus.address)
+        .output();
+    match out {
+        Ok(o) => {
+            assert!(o.status.success(), "gdbus: {}", String::from_utf8_lossy(&o.stderr));
+            true
+        }
+        Err(_) => {
+            eprintln!("no gdbus: ShowItems not checked");
+            false
+        }
+    }
+}
+
 #[test]
-fn show_items_and_a_second_launch_reach_the_window() {
+fn show_items_opens_new_windows() {
     let Some(bus) = Bus::start() else {
         eprintln!("no dbus-daemon: skipped");
         return;
     };
     let s = Scratch::new("dbus");
+    let first = s.dir("first");
     s.file("first/a.txt", 3);
-    let second = s.dir("second");
     let wanted = s.file("second/wanted name.txt", 3);
-    s.file("second/other.txt", 3);
+    let also = s.file("second/also.txt", 3);
+    let third = s.file("third/c.txt", 3);
 
-    let first = Show { folder: s.0.join("first"), select: Vec::new() };
-    let remote = match claim(Some(&bus.address), &first).unwrap() {
-        Claim::Primary(r) => r,
-        Claim::Forwarded => panic!("nobody else is running"),
-    };
-    let mut h = window(&s.0.join("first"));
+    let remote = serve(Some(&bus.address), false).unwrap();
+    let mut h = window(&first);
     h.state_mut().attach_remote(remote);
     listed(&mut h);
 
-    // Another app's "show in folder".
-    let uri = format!("file://{}", wanted.display()).replace(' ', "%20");
-    let out = Command::new("gdbus")
-        .args(["call", "--session", "--dest", "org.freedesktop.FileManager1", "--object-path", "/org/freedesktop/FileManager1", "--method", "org.freedesktop.FileManager1.ShowItems"])
-        .arg(format!("['{uri}']"))
-        .arg("")
-        .env("DBUS_SESSION_BUS_ADDRESS", &bus.address)
-        .output();
-    match out {
-        Ok(o) => assert!(o.status.success(), "gdbus: {}", String::from_utf8_lossy(&o.stderr)),
-        Err(_) => {
-            eprintln!("no gdbus: ShowItems not checked");
-        }
+    if !show_items(&bus, &[&wanted, &third, &also], "token-1") {
+        return;
     }
-    if s.0.join("second").exists() && Command::new("gdbus").arg("help").output().is_ok() {
-        until(&mut h, Duration::from_secs(10), "ShowItems", |w| w.explorer.is_current() && w.explorer.folder == second && w.explorer.selection.is_selected(std::ffi::OsStr::new("wanted name.txt")));
-        assert_eq!(h.state().explorer.selection.items.len(), 1);
-    }
+    until(&mut h, Duration::from_secs(10), "ShowItems", |w| w.new_windows.len() == 2);
+    let w = h.state();
+    assert_eq!(
+        w.new_windows,
+        vec![
+            NewWindow { show: Show { folder: s.0.join("second"), select: vec!["wanted name.txt".into(), "also.txt".into()] }, token: Some("token-1".into()) },
+            NewWindow { show: Show { folder: s.0.join("third"), select: vec!["c.txt".into()] }, token: None },
+        ]
+    );
+    // This window stays where it was.
+    assert_eq!(w.explorer.folder, first);
+}
 
-    // A second launch: hands over and exits, no window.
-    let start = Instant::now();
-    let status = Command::new(env!("CARGO_BIN_EXE_fractale")).arg("--select").arg(s.0.join("first/a.txt")).env("DBUS_SESSION_BUS_ADDRESS", &bus.address).env_remove("WAYLAND_DISPLAY").env_remove("DISPLAY").status().unwrap();
-    assert!(status.success());
-    eprintln!("second launch handed over and exited in {:?}", start.elapsed());
-    assert!(start.elapsed() < Duration::from_secs(5));
-    until(&mut h, Duration::from_secs(10), "the second launch's request", |w| w.explorer.is_current() && w.explorer.folder == s.0.join("first") && w.explorer.selection.is_selected(std::ffi::OsStr::new("a.txt")));
+#[test]
+fn started_by_the_bus_shows_the_first_request_itself() {
+    let Some(bus) = Bus::start() else {
+        eprintln!("no dbus-daemon: skipped");
+        return;
+    };
+    let s = Scratch::new("dbus-activated");
+    let home = s.dir("home");
+    let second = s.dir("second");
+    let wanted = s.file("second/wanted.txt", 3);
+    let later = s.file("home/later.txt", 3);
+
+    let remote = serve(Some(&bus.address), true).unwrap();
+    let mut h = window(&home);
+    h.state_mut().attach_remote(remote);
+    listed(&mut h);
+
+    if !show_items(&bus, &[&wanted], "") {
+        return;
+    }
+    until(&mut h, Duration::from_secs(10), "ShowItems", |w| w.explorer.is_current() && w.explorer.folder == second && w.explorer.selection.is_selected(std::ffi::OsStr::new("wanted.txt")));
+    assert!(h.state().new_windows.is_empty());
+
+    // The next one gets its own window.
+    show_items(&bus, &[&later], "");
+    until(&mut h, Duration::from_secs(10), "second ShowItems", |w| !w.new_windows.is_empty());
+    assert_eq!(h.state().new_windows[0].show, Show { folder: home, select: vec!["later.txt".into()] });
+    assert_eq!(h.state().explorer.folder, second);
 }

@@ -121,7 +121,7 @@ fn five_thousand_images() {
     let _ = std::fs::remove_dir_all(&root);
     let mut w = fractale::ui::Window::new(fractale::ui::Start {
         folder: dir.clone(),
-        select: None,
+        select: Vec::new(),
         sources: fractale::model::explorer::Sources { socket: "/nonexistent/x.sock".into(), retry: Duration::from_secs(3600), thumbnails: root.clone() },
     });
     w.launch = false;

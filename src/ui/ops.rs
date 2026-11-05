@@ -154,6 +154,10 @@ pub fn item_menu(ui: &mut egui::Ui, w: &mut Window) {
         }
         ui.close();
     }
+    if folder && ui.button("Open in new window").clicked() {
+        w.new_window(paths[0].clone());
+        ui.close();
+    }
     if !folder && ui.button("Open with…").clicked() {
         w.ops.open_with = Some(OpenWith { files: paths.clone(), apps: None, mime: String::new(), command: String::new() });
         w.opener.send(crate::model::opener::Req::AppsFor(paths.clone()));
@@ -205,6 +209,11 @@ pub fn background_menu(ui: &mut egui::Ui, w: &mut Window) {
     }
     if ui.add(egui::Button::new("New folder").shortcut_text(shortcut("Shift+N"))).clicked() {
         w.explorer.new_folder();
+        ui.close();
+    }
+    if ui.add(egui::Button::new("New window").shortcut_text(shortcut("N"))).clicked() {
+        let here = w.explorer.files_folder().to_path_buf();
+        w.new_window(here);
         ui.close();
     }
     ui.separator();

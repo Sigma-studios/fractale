@@ -25,32 +25,33 @@ use theme::*;
 /// Where the window starts.
 pub struct Start {
     pub folder: PathBuf,
-    pub select: Option<PathBuf>,
+    /// Files in `folder` to select.
+    pub select: Vec<PathBuf>,
     /// Where sizes come from (répertoire's socket, retry period).
     pub sources: crate::model::explorer::Sources,
 }
 
 impl Start {
     pub fn at(folder: PathBuf) -> Start {
-        Start { folder, select: None, sources: Default::default() }
+        Start { folder, select: Vec::new(), sources: Default::default() }
     }
 }
 
 impl Start {
-    /// `--select FILE` opens FILE's folder; `--demo` the fixtures; otherwise
-    /// PATH, or the home folder.
-    pub fn resolve(path: Option<PathBuf>, select: Option<PathBuf>, demo: bool) -> Start {
-        if let Some(file) = select {
-            let file = absolute(&file);
-            let folder = file.parent().map(Path::to_path_buf).unwrap_or_else(|| "/".into());
-            return Start { folder, select: Some(file), sources: Default::default() };
+    /// `--select FILE` opens FILE's folder (the first one's, with those in it
+    /// selected); `--demo` the fixtures; otherwise PATH, or the home folder.
+    pub fn resolve(path: Option<PathBuf>, select: Vec<PathBuf>, demo: bool) -> Start {
+        if let Some(first) = select.first() {
+            let folder = absolute(first).parent().map(Path::to_path_buf).unwrap_or_else(|| "/".into());
+            let select = select.iter().map(|f| absolute(f)).filter(|f| f.parent() == Some(&folder)).collect();
+            return Start { folder, select, sources: Default::default() };
         }
         let folder = if demo {
             fixtures_dir()
         } else {
             path.or_else(|| std::env::var_os("HOME").map(PathBuf::from)).unwrap_or_else(|| "/".into())
         };
-        Start { folder: absolute(&folder), select: None, sources: Default::default() }
+        Start { folder: absolute(&folder), select: Vec::new(), sources: Default::default() }
     }
 }
 
@@ -106,7 +107,7 @@ pub fn run(start: Start, remote: Option<crate::model::remote::Remote>) -> eframe
             if let Some(r) = remote {
                 window.attach_remote(r);
             }
-            Ok(Box::new(App { window, system: system::System::default(), screenshot: std::env::var("FRACTALE_SCREENSHOT").ok().map(|p| (p, false)) }))
+            Ok(Box::new(App { window, system: system::System::default(), waiting: Vec::new(), screenshot: std::env::var("FRACTALE_SCREENSHOT").ok().map(|p| (p, false)) }))
         }),
     )
 }
@@ -114,12 +115,48 @@ pub fn run(start: Start, remote: Option<crate::model::remote::Remote>) -> eframe
 struct App {
     window: Window,
     system: system::System,
+    /// New windows waiting for an activation token (asked of the
+    /// compositor), so they come up focused.
+    waiting: Vec<(crate::model::remote::Show, Instant)>,
     /// `FRACTALE_SCREENSHOT=out.ppm`: save the window after
     /// `FRACTALE_SCREENSHOT_DELAY` seconds (default 1) and quit.
     screenshot: Option<(String, bool)>,
 }
 
 impl App {
+    /// Start the windows asked for. Those without a token wait a moment for
+    /// one; without it the compositor may open them behind this one.
+    fn open_windows(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        use crate::model::remote::open_window;
+        let start = |show: &crate::model::remote::Show, token: Option<&str>, w: &mut Window| {
+            if let Err(e) = open_window(show, token) {
+                w.explorer.notice = Some((format!("Couldn't open a new window: {e}"), Instant::now()));
+            }
+        };
+        for nw in std::mem::take(&mut self.window.new_windows) {
+            if nw.token.is_some() || !cfg!(target_os = "linux") {
+                start(&nw.show, nw.token.as_deref(), &mut self.window);
+            } else {
+                frame.request_activation_token();
+                self.waiting.push((nw.show, Instant::now()));
+            }
+        }
+        if self.waiting.is_empty() {
+            return;
+        }
+        if let Some(token) = frame.take_activation_token() {
+            let (show, _) = self.waiting.remove(0);
+            start(&show, Some(&token), &mut self.window);
+        }
+        while self.waiting.first().is_some_and(|(_, at)| at.elapsed() > Duration::from_millis(500)) {
+            let (show, _) = self.waiting.remove(0);
+            start(&show, None, &mut self.window);
+        }
+        if !self.waiting.is_empty() {
+            ctx.request_repaint_after(Duration::from_millis(30));
+        }
+    }
+
     fn handle_screenshot(&mut self, ctx: &egui::Context) {
         use std::sync::atomic::{AtomicBool, Ordering};
         use std::sync::Arc;
@@ -181,6 +218,7 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.system.start(&ctx, frame, &mut self.window);
         self.window.ui(ui);
+        self.open_windows(&ctx, frame);
         self.system.output(&ctx, &mut self.window);
         self.handle_screenshot(&ctx);
     }
@@ -213,8 +251,10 @@ pub struct Window {
     pub search_edited: Option<Instant>,
     pub previews: previews::Previews,
     pub ops: ops::OpsUi,
-    /// Requests from a second launch or another app.
+    /// "Show in folder" requests from other apps.
     remote: Option<crate::model::remote::Remote>,
+    /// Windows to open (Ctrl+N, other apps' requests); `App` starts them.
+    pub new_windows: Vec<crate::model::remote::NewWindow>,
     pub opener: crate::model::opener::Opener,
     /// The system clipboard is ours to use (Wayland data device running).
     pub system_clipboard: bool,
@@ -255,8 +295,11 @@ impl Window {
         let previews = previews::Previews::new(thumbnails, Arc::new(wake(&ctx)));
         let opener = crate::model::opener::Opener::spawn(Arc::new(wake(&ctx)));
         let media = media::Media::new(Arc::new(wake(&ctx)));
-        let select = start.select.as_ref().and_then(|s| s.file_name()).map(|n| n.to_owned());
-        let explorer = Explorer::with_sources(start.folder, select, start.sources, wake(&waker));
+        let names: Vec<std::ffi::OsString> = start.select.iter().filter_map(|s| s.file_name()).map(|n| n.to_owned()).collect();
+        let mut explorer = Explorer::with_sources(start.folder.clone(), names.first().cloned(), start.sources, wake(&waker));
+        if names.len() > 1 {
+            explorer.reveal(crate::model::remote::Show { folder: start.folder, select: names });
+        }
         Window {
             explorer,
             focus: Pane::Folders,
@@ -276,6 +319,7 @@ impl Window {
             previews,
             ops: ops::OpsUi::default(),
             remote: None,
+            new_windows: Vec::new(),
             opener,
             system_clipboard: false,
             system_drag: None,
@@ -310,19 +354,25 @@ impl Window {
         self.remote = Some(remote);
     }
 
+    /// Requests open new windows, except the one this Fractale was started
+    /// by the bus for.
     fn serve_remote(&mut self, ctx: &egui::Context) {
-        let Some(r) = &self.remote else { return };
-        let shows: Vec<_> = r.rx.try_iter().collect();
-        if shows.is_empty() {
-            return;
+        let Some(r) = &mut self.remote else { return };
+        for req in r.rx.try_iter() {
+            if std::mem::take(&mut r.first_here) {
+                self.explorer.reveal(req.show);
+                // Wayland doesn't let a window take focus by itself; the
+                // compositor may flash it instead.
+                ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+            } else {
+                self.new_windows.push(req);
+            }
         }
-        for s in shows {
-            self.explorer.reveal(s);
-        }
-        // Wayland doesn't let a window take focus by itself; the compositor
-        // may flash it instead.
-        ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-        ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
+    }
+
+    /// Open the current folder in a new window.
+    pub fn new_window(&mut self, folder: PathBuf) {
+        self.new_windows.push(crate::model::remote::NewWindow { show: crate::model::remote::Show { folder, select: Vec::new() }, token: None });
     }
 
     pub fn ui(&mut self, ui: &mut egui::Ui) {
@@ -440,6 +490,11 @@ impl Window {
                         }
                         Key::F if cmd => {
                             self.topbar.focus_search = true;
+                            continue;
+                        }
+                        Key::N if cmd && !m.shift => {
+                            let here = self.explorer.folder.clone();
+                            self.new_window(here);
                             continue;
                         }
                         Key::Escape if editing => {

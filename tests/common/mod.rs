@@ -68,7 +68,7 @@ pub fn window(folder: &Path) -> H<'static> {
 }
 
 pub fn window_with(folder: &Path, sources: fractale::model::explorer::Sources) -> H<'static> {
-    let mut w = Window::new(Start { folder: folder.to_path_buf(), select: None, sources });
+    let mut w = Window::new(Start { folder: folder.to_path_buf(), select: Vec::new(), sources });
     w.launch = false;
     builder().build_ui_state(|ui, w: &mut Window| w.ui(ui), w)
 }

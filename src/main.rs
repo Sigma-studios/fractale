@@ -4,23 +4,26 @@ const HELP: &str = "fractale — a file explorer for finding what uses disk spac
 
 USAGE: fractale [OPTIONS] [PATH | URI]
 
-A file opens its folder with it selected. With Fractale already running,
-the request goes to that window.
+A file opens its folder with it selected. Every launch opens a window.
 
 OPTIONS:
-    --select <FILE>   Open FILE's folder with FILE selected
+    --select <FILE>   Open FILE's folder with FILE selected (repeatable:
+                      files in the same folder)
     --demo            Open the test fixtures (built by scripts/fixtures.sh)
     -h, --help        Show this help";
 
 fn main() {
     let mut path: Option<PathBuf> = None;
-    let mut select: Option<PathBuf> = None;
+    let mut select: Vec<PathBuf> = Vec::new();
     let mut demo = false;
+    // Started by the bus for a "show in folder" (see dist/).
+    let mut activated = false;
     let mut args = std::env::args_os().skip(1);
     while let Some(a) = args.next() {
         match a.to_str() {
-            Some("--select") => select = Some(args.next().map(PathBuf::from).unwrap_or_else(|| usage_error("--select needs a file"))),
+            Some("--select") => select.push(args.next().map(PathBuf::from).unwrap_or_else(|| usage_error("--select needs a file"))),
             Some("--demo") => demo = true,
+            Some("--activated") => activated = true,
             Some("-h" | "--help") => {
                 println!("{HELP}");
                 return;
@@ -31,36 +34,32 @@ fn main() {
         }
     }
     // A file given as the path: its folder, with it selected.
-    if select.is_none() && path.as_ref().is_some_and(|p| p.exists() && !p.is_dir()) {
-        select = path.take();
+    if select.is_empty() && path.as_ref().is_some_and(|p| p.exists() && !p.is_dir()) {
+        select.extend(path.take());
     }
     let start = fractale::ui::Start::resolve(path, select, demo);
-    let remote = single_instance(&start);
+    let remote = file_manager(activated);
     if let Err(e) = fractale::ui::run(start, remote) {
         eprintln!("fractale: {e}");
         std::process::exit(1);
     }
 }
 
-/// Hand the request to a running Fractale (and exit), or become the one
-/// that takes requests. Without a session bus Fractale just runs.
+/// Take "show in folder" requests from other apps, when this Fractale gets
+/// the desktop's file manager name. Without a session bus Fractale just runs.
 #[cfg(target_os = "linux")]
-fn single_instance(start: &fractale::ui::Start) -> Option<fractale::model::remote::Remote> {
-    use fractale::model::dbus::{claim, Claim};
-    let select = start.select.as_ref().and_then(|s| s.file_name()).map(|n| vec![n.to_owned()]).unwrap_or_default();
-    let show = fractale::model::remote::Show { folder: start.folder.clone(), select };
-    match claim(None, &show) {
-        Ok(Claim::Forwarded) => std::process::exit(0),
-        Ok(Claim::Primary(r)) => Some(r),
+fn file_manager(activated: bool) -> Option<fractale::model::remote::Remote> {
+    match fractale::model::dbus::serve(None, activated) {
+        Ok(r) => Some(r),
         Err(e) => {
-            eprintln!("fractale: no session bus ({e}); running on its own");
+            eprintln!("fractale: no session bus ({e}); \"show in folder\" from other apps won't reach it");
             None
         }
     }
 }
 
 #[cfg(not(target_os = "linux"))]
-fn single_instance(_: &fractale::ui::Start) -> Option<fractale::model::remote::Remote> {
+fn file_manager(_: bool) -> Option<fractale::model::remote::Remote> {
     None
 }
 

@@ -134,10 +134,13 @@ plugins, not `.thumbnailer` files, and can't be used.
 - **Hard links under the fallback:** a file with links in two subfolders
   is charged to whichever was measured first. The total is right either
   way.
-- **One window,** as asked. A second launch, or another app's "show in
-  folder", goes to that window, which asks to be raised. On Wayland KWin
-  may flash it in the task bar rather than raise it, since raising needs
-  an activation token that Fractale doesn't pass on yet. No tabs.
+- **Many windows, one process each.** Every launch opens a window; Ctrl+N
+  and "Open in new window" start another `fractale`. Every Fractale queues
+  for `org.freedesktop.FileManager1`; the one holding it opens a new window
+  per "show in folder", passing the caller's activation token on (or one
+  it asks the compositor for, on Ctrl+N) so the window comes up focused.
+  Started by the bus (`--activated`, see `dist/`), the first request shows
+  in that window. Not tried on a real desktop yet. No tabs.
 - **Clipboard and drag and drop with other apps are Wayland only.**
   - Under X11 (and macOS), files are copied and dragged only inside
     Fractale. Text fields use the X11 clipboard through arboard; that path

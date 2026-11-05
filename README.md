@@ -21,9 +21,10 @@ cargo build --release
 ./target/release/fractale --select ~/Downloads/thing.zip   # its folder, it selected
 ```
 
-A file given as PATH opens its folder with the file selected. With Fractale
-already running, a second launch hands the request to the running window
-and exits (Linux, over the session bus).
+A file given as PATH opens its folder with the file selected. Every launch
+opens its own window (each window is its own process); Ctrl+N, or "Open in
+new window" on a folder, opens another. Other apps' "show in folder" opens a
+new window too (Linux, over the session bus).
 
 The Nix package needs the same runtime libraries as Sentinelle (libGL,
 wayland, libxkbcommon, the X11 libraries); see

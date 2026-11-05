@@ -4,4 +4,4 @@
 [D-BUS Service]
 Name=org.freedesktop.FileManager1
 # The packager replaces the path (on NixOS, the store path).
-Exec=/usr/bin/fractale
+Exec=/usr/bin/fractale --activated
