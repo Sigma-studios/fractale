@@ -71,11 +71,25 @@ impl Searcher {
                     while let Ok(newer) = jobs.try_recv() {
                         job = newer;
                     }
-                    let (generation, query, daemon) = job;
+                    let (generation, mut query, daemon) = job;
                     let send = |r: Results| {
                         let _ = out.send(r);
                         wake();
                     };
+                    // A whole path: that item, wherever the search looks.
+                    // If it's gone, its name under what's left of the path.
+                    if let Some(path) = typed_path(&query.text) {
+                        let found = exact(&path);
+                        let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+                        let (Some(name), None) = (name, &found) else {
+                            send(Results { generation, hits: found.into_iter().collect(), done: true, partial: false, indexed: false });
+                            continue;
+                        };
+                        // A hidden name typed out is wanted even so.
+                        query.show_hidden |= name.starts_with('.');
+                        query.text = name;
+                        query.under = path.ancestors().skip(1).find(|a| a.is_dir()).map(Path::to_path_buf);
+                    }
                     if daemon {
                         if let Some(hits) = ask_daemon(&socket, &query) {
                             send(Results { generation, hits, done: true, partial: false, indexed: true });
@@ -101,6 +115,51 @@ impl Searcher {
         self.generation += 1;
         self.latest.store(self.generation, Ordering::Relaxed);
     }
+}
+
+/// Search text that is a path (`/…`, `~/…`, `file://…`, maybe quoted by a
+/// paste), made absolute and lexically clean.
+pub fn typed_path(text: &str) -> Option<PathBuf> {
+    let t = text.trim().trim_matches(|c| c == '\'' || c == '"').trim();
+    let p = if t.starts_with("file://") {
+        super::remote::path_of_uri(t)?
+    } else if t == "~" || t.starts_with("~/") {
+        PathBuf::from(std::env::var_os("HOME")?).join(t[1..].trim_start_matches('/'))
+    } else if t.starts_with('/') {
+        PathBuf::from(t)
+    } else {
+        return None;
+    };
+    let mut out = PathBuf::from("/");
+    for c in p.components() {
+        match c {
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            std::path::Component::Normal(n) => out.push(n),
+            _ => {}
+        }
+    }
+    Some(out)
+}
+
+/// The item at `path`, if there is one. A link to a folder counts as a
+/// folder, so opening it goes there.
+fn exact(path: &Path) -> Option<Hit> {
+    use std::os::unix::fs::MetadataExt;
+    let md = std::fs::symlink_metadata(path).ok()?;
+    let ft = md.file_type();
+    let kind = if ft.is_dir() || ft.is_symlink() && path.is_dir() {
+        Kind::Dir
+    } else if ft.is_symlink() {
+        Kind::Symlink
+    } else if ft.is_file() {
+        Kind::File
+    } else {
+        Kind::Other
+    };
+    let bytes = (kind != Kind::Dir).then(|| md.blocks() * 512);
+    Some(Hit { path: path.to_path_buf(), kind, bytes, rank: Rank::Exact })
 }
 
 /// Names that are hidden somewhere between `under` and the hit.
