@@ -1405,7 +1405,6 @@ name = "fractale"
 version = "0.1.0"
 dependencies = [
  "arboard",
- "cpal",
  "eframe",
  "egui",
  "egui_kittest",
@@ -1413,15 +1412,12 @@ dependencies = [
  "image 0.25.10",
  "libc",
  "notify",
- "orchestre-core",
- "orchestre-dsp",
  "raw-window-handle",
  "rayon",
  "repertoire",
  "repertoire-core",
  "repertoire-proto",
  "serde_json",
- "symphonia",
  "trash",
  "vignette",
  "wayland-backend",
@@ -4529,6 +4525,7 @@ name = "vignette"
 version = "0.1.0"
 dependencies = [
  "asefile",
+ "cpal",
  "flate2",
  "hayro",
  "image 0.25.10",

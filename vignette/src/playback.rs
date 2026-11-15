@@ -27,7 +27,7 @@ impl Kind {
         match ext.as_str() {
             "orsfx" => Some(Kind::Sound),
             "orch" => Some(Kind::Song),
-            e if super::thumbs::previewers::video::EXTENSIONS.contains(&e) => Some(Kind::Video),
+            e if crate::previewers::video::EXTENSIONS.contains(&e) => Some(Kind::Video),
             "mp3" | "flac" | "ogg" | "oga" | "wav" | "aif" | "aiff" | "aifc" | "m4a" | "aac" | "alac" | "caf" | "mka" => Some(Kind::Audio),
             _ => None,
         }
@@ -120,8 +120,8 @@ fn video(path: &Path, px: u32, stop: &AtomicBool, group: &Mutex<Option<u32>>, tx
     use std::io::Read;
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
-    let Some((duration, w, h)) = super::thumbs::previewers::video::probe(path) else { return };
-    let (fw, fh) = super::thumbs::fit(w.max(1), h.max(1), px.max(16));
+    let Some((duration, w, h)) = crate::previewers::video::probe(path) else { return };
+    let (fw, fh) = crate::fit(w.max(1), h.max(1), px.max(16));
     let mut start = video_start(duration);
     // Even sizes: some pixel formats need them.
     let (fw, fh) = ((fw & !1).max(2), (fh & !1).max(2));
@@ -241,7 +241,7 @@ fn video_sound(path: &Path, rate: u32, group: Arc<Mutex<Option<u32>>>, stop: Arc
     use std::io::Read;
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
-    let (duration, _, _) = super::thumbs::previewers::video::probe(path).ok_or("not a video ffprobe can read")?;
+    let (duration, _, _) = crate::previewers::video::probe(path).ok_or("not a video ffprobe can read")?;
     let path = path.to_path_buf();
     let spawn = move |start: f64| {
         let child = Command::new("ffmpeg")
@@ -524,7 +524,7 @@ mod source_tests {
 
     #[test]
     fn video_frames_come_and_stop() {
-        if !super::super::thumbs::previewers::video::available() {
+        if !crate::previewers::video::available() {
             eprintln!("no ffmpeg: skipped");
             return;
         }
@@ -596,7 +596,7 @@ mod source_tests {
 
     #[test]
     fn a_videos_sound_track_plays_and_a_silent_video_ends() {
-        if !super::super::thumbs::previewers::video::available() {
+        if !crate::previewers::video::available() {
             eprintln!("no ffmpeg: skipped");
             return;
         }

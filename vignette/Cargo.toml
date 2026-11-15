@@ -19,7 +19,7 @@ flate2 = "1"
 lz4_flex = "0.11"
 ron = "0.10"
 serde = { version = "1", features = ["derive"] }
-# Audio waveforms.
+# Audio waveforms, and playing audio files when hovered.
 symphonia = { version = "0.6", features = ["all"] }
 # SVG and PDF previews, in-process and pure Rust.
 resvg = { version = "0.49", default-features = false, features = ["text", "system-fonts", "raster-images"] }
@@ -31,3 +31,5 @@ asefile = "0.3"
 # Orchestre's song model and synth, for song and sound effect previews.
 orchestre-core = { git = "https://github.com/Sigma-studios/orchestre", rev = "9969a78e79d9b446de1bc563182834ae9b9afe45" }
 orchestre-dsp = { git = "https://github.com/Sigma-studios/orchestre", rev = "9969a78e79d9b446de1bc563182834ae9b9afe45" }
+# Sound for previews that play: audio files, videos' tracks, Orchestre songs.
+cpal = "0.18"

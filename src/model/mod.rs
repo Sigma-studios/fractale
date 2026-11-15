@@ -13,7 +13,7 @@ pub mod listing;
 pub mod opener;
 pub mod ops;
 pub mod platform;
-pub mod playback;
+pub use vignette::playback;
 pub mod remote;
 pub mod repertoire;
 pub mod search;

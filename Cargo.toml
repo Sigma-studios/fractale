@@ -28,16 +28,9 @@ arboard = { version = "3.7", default-features = false }
 # they come in.
 vignette = { path = "vignette" }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff", "qoi", "tga", "ico", "hdr", "pnm"] }
-# Decoding audio files, to play them when hovered.
-symphonia = { version = "0.6", features = ["all"] }
-# Sound for hover previews of audio files.
-cpal = "0.18"
 # The freedesktop trash (and macOS's). `chrono` writes DeletionDate, which
 # the spec requires and KDE shows.
 trash = { version = "5.2", default-features = false, features = ["chrono"] }
-# Orchestre's song model and synth, for playing songs and sound effects.
-orchestre-core = { git = "https://github.com/Sigma-studios/orchestre", rev = "9969a78e79d9b446de1bc563182834ae9b9afe45" }
-orchestre-dsp = { git = "https://github.com/Sigma-studios/orchestre", rev = "9969a78e79d9b446de1bc563182834ae9b9afe45" }
 
 # The desktop's file manager interface (org.freedesktop.FileManager1) and
 # one running instance.

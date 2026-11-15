@@ -1,6 +1,7 @@
 //! Vignette: Fractale's previews, shared with Génie, which shows them for
 //! the files it finds. Nothing here draws: previews come out as images, and
-//! each app makes its own textures.
+//! each app makes its own textures. `playback` plays the ones that move
+//! (videos, sounds, songs) while the pointer rests on them.
 //!
 //! Previews for the grid.
 //!
@@ -17,6 +18,7 @@
 
 pub mod cache;
 pub mod mime;
+pub mod playback;
 pub mod previewers;
 
 use cache::Bucket;
