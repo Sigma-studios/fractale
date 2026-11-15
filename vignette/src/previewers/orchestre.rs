@@ -3,7 +3,7 @@
 //! (`.orsfx`) as the waveform of one play, rendered with Orchestre's own
 //! synth (`orchestre-dsp`), so the picture is what the game will play.
 
-use super::super::{FileInfo, Previewer, Rendered};
+use crate::{FileInfo, Previewer, Rendered};
 use orchestre_core::Project;
 use std::time::{Duration, Instant};
 

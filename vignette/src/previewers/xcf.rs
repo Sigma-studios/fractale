@@ -24,7 +24,7 @@
 //! capped by a budget proportional to the file size. Anything unexpected
 //! returns `Err`; nothing panics.
 
-use super::super::{FileInfo, Previewer, Rendered};
+use crate::{FileInfo, Previewer, Rendered};
 use flate2::{Decompress, FlushDecompress};
 use image::imageops::{self, FilterType::Triangle};
 use image::{Rgba, RgbaImage};

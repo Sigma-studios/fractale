@@ -1,7 +1,7 @@
 //! Videos, when no desktop thumbnailer took them (macOS, or a Linux without
 //! ffmpegthumbnailer): one frame from 10% in, extracted by `ffmpeg`.
 
-use super::super::{FileInfo, Previewer, Rendered};
+use crate::{FileInfo, Previewer, Rendered};
 use std::process::Command;
 use std::time::Duration;
 

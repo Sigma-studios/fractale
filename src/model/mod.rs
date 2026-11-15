@@ -18,5 +18,5 @@ pub mod remote;
 pub mod repertoire;
 pub mod search;
 pub mod sizes;
-pub mod thumbs;
+pub use vignette as thumbs;
 pub mod view;

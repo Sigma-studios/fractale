@@ -1,3 +1,7 @@
+//! Vignette: Fractale's previews, shared with Génie, which shows them for
+//! the files it finds. Nothing here draws: previews come out as images, and
+//! each app makes its own textures.
+//!
 //! Previews for the grid.
 //!
 //! Previewers are small, independent pieces behind one trait, tried in
@@ -12,6 +16,7 @@
 //! cache (see `cache`) so other apps benefit too.
 
 pub mod cache;
+pub mod mime;
 pub mod previewers;
 
 use cache::Bucket;
@@ -135,7 +140,7 @@ impl Thumbs {
                     std::thread::Builder::new()
                         .name(format!("thumbs-{i}"))
                         .spawn(move || {
-                            super::platform::lower_priority_current_thread();
+                            lower_priority_current_thread();
                             worker(&queue, &tx, &stop, &previewers, &*wake, &root)
                         })
                         .expect("spawn thumbnail worker");
@@ -185,6 +190,26 @@ fn worker(queue: &(Mutex<Queue>, Condvar), tx: &Sender<Ready>, stop: &AtomicBool
             return;
         }
         wake();
+    }
+}
+
+/// Lower the calling thread's priority a little, for work the user is
+/// waiting to see (previews): below the UI and interactive apps, but still
+/// on the fast cores. Nice 10 and the lowest best-effort I/O level; on
+/// macOS the utility QoS class (the background class used for sizing runs
+/// on the efficiency cores only, measured ten times slower for previews).
+fn lower_priority_current_thread() {
+    #[cfg(target_os = "linux")]
+    // SAFETY: plain syscalls on the calling thread; failures are harmless.
+    unsafe {
+        libc::setpriority(libc::PRIO_PROCESS, 0, 10);
+        // ioprio_set(IOPRIO_WHO_PROCESS, 0, IOPRIO_CLASS_BE << 13 | 7)
+        libc::syscall(libc::SYS_ioprio_set, 1, 0, (2 << 13) | 7);
+    }
+    #[cfg(target_os = "macos")]
+    // SAFETY: sets the calling thread's QoS; failure is harmless.
+    unsafe {
+        libc::pthread_set_qos_class_self_np(libc::qos_class_t::QOS_CLASS_UTILITY, 0);
     }
 }
 

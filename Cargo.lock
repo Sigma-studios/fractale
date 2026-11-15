@@ -1405,37 +1405,28 @@ name = "fractale"
 version = "0.1.0"
 dependencies = [
  "arboard",
- "asefile",
  "cpal",
  "eframe",
  "egui",
  "egui_kittest",
  "flate2",
- "hayro",
  "image 0.25.10",
- "jpeg-decoder",
  "libc",
- "lz4_flex",
- "md-5",
  "notify",
  "orchestre-core",
  "orchestre-dsp",
- "png",
  "raw-window-handle",
  "rayon",
  "repertoire",
  "repertoire-core",
  "repertoire-proto",
- "resvg",
- "ron",
- "serde",
  "serde_json",
  "symphonia",
  "trash",
+ "vignette",
  "wayland-backend",
  "wayland-client",
  "zbus",
- "zip",
 ]
 
 [[package]]
@@ -4532,6 +4523,28 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "vignette"
+version = "0.1.0"
+dependencies = [
+ "asefile",
+ "flate2",
+ "hayro",
+ "image 0.25.10",
+ "jpeg-decoder",
+ "libc",
+ "lz4_flex",
+ "md-5",
+ "orchestre-core",
+ "orchestre-dsp",
+ "png",
+ "resvg",
+ "ron",
+ "serde",
+ "symphonia",
+ "zip",
+]
 
 [[package]]
 name = "walkdir"

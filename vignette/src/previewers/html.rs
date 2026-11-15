@@ -3,7 +3,7 @@
 //! and loading a downloaded page's remote resources just to draw a tile
 //! would tell its author you looked.
 
-use super::super::{FileInfo, Previewer, Rendered};
+use crate::{FileInfo, Previewer, Rendered};
 
 const MAX_READ: u64 = 2 << 20;
 

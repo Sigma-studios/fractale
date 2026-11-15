@@ -1,6 +1,6 @@
 //! SVG (and gzipped SVGZ) drawings, rendered with resvg at the preview size.
 
-use super::super::{FileInfo, Previewer, Rendered};
+use crate::{FileInfo, Previewer, Rendered};
 use resvg::{tiny_skia, usvg};
 use std::sync::{Arc, OnceLock};
 

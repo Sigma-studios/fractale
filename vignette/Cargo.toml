@@ -1,0 +1,33 @@
+[package]
+name = "vignette"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+description = "Fractale's file previews, also used by Génie: images, sprites, songs, documents and the desktop's thumbnailers, through the shared thumbnail cache"
+license = "MIT"
+repository = "https://github.com/Sigma-studios/fractale"
+
+[dependencies]
+libc = "0.2"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp", "tiff", "qoi", "tga", "ico", "hdr", "pnm"] }
+# Decodes JPEGs at 1/2, 1/4 or 1/8 scale, much faster for big photos.
+jpeg-decoder = { version = "0.3", default-features = false }
+# The thumbnail cache: PNGs with text chunks, named by the MD5 of the URI.
+png = "0.18"
+md5 = { package = "md-5", version = "0.11" }
+flate2 = "1"
+lz4_flex = "0.11"
+ron = "0.10"
+serde = { version = "1", features = ["derive"] }
+# Audio waveforms.
+symphonia = { version = "0.6", features = ["all"] }
+# SVG and PDF previews, in-process and pure Rust.
+resvg = { version = "0.49", default-features = false, features = ["text", "system-fonts", "raster-images"] }
+hayro = "0.8"
+# Office documents are zip files (their embedded preview, or their text).
+zip = { version = "9", default-features = false, features = ["deflate-flate2"] }
+# Aseprite sprites.
+asefile = "0.3"
+# Orchestre's song model and synth, for song and sound effect previews.
+orchestre-core = { git = "https://github.com/Sigma-studios/orchestre", rev = "9969a78e79d9b446de1bc563182834ae9b9afe45" }
+orchestre-dsp = { git = "https://github.com/Sigma-studios/orchestre", rev = "9969a78e79d9b446de1bc563182834ae9b9afe45" }

@@ -19,7 +19,7 @@
 //! (or if it does not parse) the palette is DawnBringer 32 at indices 1–32, which is what every
 //! new Pixelle project starts with, then a grey ramp for 33–255.
 
-use super::super::{FileInfo, Previewer, Rendered};
+use crate::{FileInfo, Previewer, Rendered};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 

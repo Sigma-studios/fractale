@@ -2,7 +2,7 @@
 //! size rather than in full where the format allows (JPEG decodes at 1/2,
 //! 1/4 or 1/8 scale), with EXIF orientation applied.
 
-use super::super::{FileInfo, Previewer, Rendered};
+use crate::{FileInfo, Previewer, Rendered};
 use image::ImageDecoder;
 use std::io::BufReader;
 

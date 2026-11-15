@@ -61,7 +61,9 @@ wait is 200 ms; `FRACTALE_HOVER_DELAY_MS` changes it.
 
 Previews go into the shared thumbnail cache (`~/.cache/thumbnails`), so
 other file managers use them too. Each format is a small `Previewer`
-(`src/model/thumbs/previewers/`); adding a format means adding one.
+(`vignette/src/previewers/`); adding a format means adding one. They're
+their own crate, `vignette`, which [Génie](https://github.com/Sigma-studios/genie)
+uses for its file previews too.
 
 ## Keyboard
 

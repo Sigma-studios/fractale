@@ -2,7 +2,7 @@
 //! frame 0, or every frame as an animation when there are several. Pixel
 //! art: scaled by whole factors with nearest-neighbour (see `pixel_art`).
 
-use super::super::{FileInfo, Previewer, Rendered};
+use crate::{FileInfo, Previewer, Rendered};
 use std::time::Duration;
 
 const MAX_FILE: u64 = 64 << 20;

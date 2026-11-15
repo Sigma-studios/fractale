@@ -1,7 +1,7 @@
 //! Fonts (TrueType, OpenType, collections): a specimen drawn with the font
 //! itself: "Aa", a sample line and the family's name.
 
-use super::super::{FileInfo, Previewer, Rendered};
+use crate::{FileInfo, Previewer, Rendered};
 use resvg::{tiny_skia, usvg};
 use std::sync::Arc;
 

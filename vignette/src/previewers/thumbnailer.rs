@@ -10,7 +10,7 @@
 //! worker (so they inherit its priority), with a timeout, writing to a
 //! private temporary file.
 
-use super::super::{FileInfo, Previewer, Rendered};
+use crate::{FileInfo, Previewer, Rendered};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::os::unix::process::CommandExt;
@@ -30,7 +30,7 @@ pub struct Thumbnailer {
     db: Arc<MimeDb>,
 }
 
-use crate::model::apps::MimeDb;
+use crate::mime::MimeDb;
 
 /// Every installed thumbnailer whose program exists, user's first (they
 /// override the system's).
@@ -147,7 +147,7 @@ impl Previewer for Thumbnailer {
     fn render(&self, f: &FileInfo, max: u32) -> Result<Rendered, String> {
         let tmp = TempDir::new()?;
         let out = tmp.0.join("thumb.png");
-        let uri = super::super::cache::uri(&f.path);
+        let uri = crate::cache::uri(&f.path);
         let mut args = self.exec.iter().map(|a| {
             let mut s = String::new();
             let mut it = a.chars();

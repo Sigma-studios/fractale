@@ -4,7 +4,7 @@
 //! asked to. A Word document without one gets its first lines of text on a
 //! page (see `page`); the others get the icon.
 
-use super::super::{FileInfo, Previewer, Rendered};
+use crate::{FileInfo, Previewer, Rendered};
 use std::io::Read;
 
 const EXTENSIONS: &[&str] = &["docx", "xlsx", "pptx", "odt", "ods", "odp", "odg", "ott", "ots", "otp", "docm", "xlsm", "pptm"];

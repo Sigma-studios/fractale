@@ -1,7 +1,7 @@
 //! Animated GIFs (and still ones). The animation plays in the tile; only
 //! its first frame goes to the shared cache, as other apps expect.
 
-use super::super::{FileInfo, Previewer, Rendered};
+use crate::{FileInfo, Previewer, Rendered};
 use image::AnimationDecoder;
 use std::time::Duration;
 

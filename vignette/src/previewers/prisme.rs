@@ -8,7 +8,7 @@
 //! type icon. (Prisme can write it, `container::save_with_preview`, but the
 //! app saves without one as of 26ea8cb.)
 
-use super::super::{FileInfo, Previewer, Rendered};
+use crate::{FileInfo, Previewer, Rendered};
 
 const MAGIC: &[u8; 8] = b"PRISME\0\x01";
 const HEADER_LEN: usize = 16;

@@ -1,7 +1,7 @@
 //! PDFs: the first page, rendered in-process with hayro (pure Rust, no
 //! poppler or pdfium to install). Encrypted files get the icon.
 
-use super::super::{FileInfo, Previewer, Rendered};
+use crate::{FileInfo, Previewer, Rendered};
 use hayro::hayro_interpret::InterpreterSettings;
 use hayro::hayro_syntax::Pdf;
 use hayro::vello_cpu::color::palette::css::WHITE;

@@ -4,7 +4,7 @@
 //! are sampled: a seek and a few packets per column, so an hour-long
 //! recording costs about as much as a song.
 
-use super::super::{FileInfo, Previewer, Rendered};
+use crate::{FileInfo, Previewer, Rendered};
 use std::time::{Duration, Instant};
 use symphonia::core::codecs::audio::AudioDecoderOptions;
 use symphonia::core::formats::probe::Hint;
